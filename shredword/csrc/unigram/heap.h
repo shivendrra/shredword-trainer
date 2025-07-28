@@ -9,12 +9,12 @@ typedef struct {
 typedef struct {
   char *key;
   int freq, removed;
-} HashEntry;
+} HeapHashEntry;
 
 typedef struct {
   HeapEntry *heap;
   int heap_size, heap_cap;
-  HashEntry *hash;
+  HeapHashEntry *hash;
   int hash_size, hash_cap;
 } TokenFreqHeap;
 
@@ -23,7 +23,7 @@ extern "C" {
   void heap_swap(HeapEntry *a, HeapEntry *b);
   void heap_up(TokenFreqHeap *h, int idx);
   void heap_down(TokenFreqHeap *h, int idx);
-  HashEntry* find_hash(TokenFreqHeap *h, const char *token);
+  HeapHashEntry* find_hash(TokenFreqHeap *h, const char *token);
   void heap_push(TokenFreqHeap *h, const char *token, int freq);
   int heap_pop(TokenFreqHeap *h, int *freq, char **token);
   void heap_remove(TokenFreqHeap *h, const char *token);

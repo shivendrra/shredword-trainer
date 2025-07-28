@@ -3,7 +3,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include "trie.h"
-#include "../inc/hash.h"
+#include "inc/hash.h"
 
 // TrieNode functions
 static TrieNode* trie_node_create() {

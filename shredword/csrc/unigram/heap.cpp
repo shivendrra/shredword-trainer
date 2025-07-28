@@ -10,7 +10,7 @@ TokenFreqHeap* heap_create() {
   h->heap_size = 0;
   h->heap_cap = 1000;
   h->hash_cap = 10007;
-  h->hash = (HashEntry*)calloc(h->hash_cap, sizeof(HashEntry));
+  h->hash = (HeapHashEntry*)calloc(h->hash_cap, sizeof(HeapHashEntry));
   h->hash_size = 0;
   return h;
 }
@@ -38,14 +38,14 @@ void heap_down(TokenFreqHeap *h, int idx) {
   }
 }
 
-HashEntry* find_hash(TokenFreqHeap *h, const char *token) {
+HeapHashEntry* find_hash(TokenFreqHeap *h, const char *token) {
   int idx = heap_hash(token, h->hash_cap);
   while (h->hash[idx].key && strcmp(h->hash[idx].key, token)) idx = (idx+1) % h->hash_cap;
   return &h->hash[idx];
 }
 
 void heap_push(TokenFreqHeap *h, const char *token, int freq) {
-  HashEntry *entry = find_hash(h, token);
+  HeapHashEntry *entry = find_hash(h, token);
   if (entry->key && entry->removed) {
     entry->removed = 0;
     h->hash_size++;
@@ -76,7 +76,7 @@ int heap_pop(TokenFreqHeap *h, int *freq, char **token) {
     h->heap[0] = h->heap[--h->heap_size];
     if (h->heap_size) heap_down(h, 0);
 
-    HashEntry *entry = find_hash(h, *token);
+    HeapHashEntry *entry = find_hash(h, *token);
     if (entry->key && !entry->removed && entry->freq == *freq) {
       free(entry->key);
       entry->key = NULL;
@@ -90,7 +90,7 @@ int heap_pop(TokenFreqHeap *h, int *freq, char **token) {
 }
 
 void heap_remove(TokenFreqHeap *h, const char *token) {
-  HashEntry *entry = find_hash(h, token);
+  HeapHashEntry *entry = find_hash(h, token);
   if (entry->key && !entry->removed) {
     entry->removed = 1;
     h->hash_size--;
@@ -98,7 +98,7 @@ void heap_remove(TokenFreqHeap *h, const char *token) {
 }
 
 void heap_update_freq(TokenFreqHeap *h, const char *token, int new_freq) {
-  HashEntry *entry = find_hash(h, token);
+  HeapHashEntry *entry = find_hash(h, token);
   if (entry->key && !entry->removed) {
     entry->removed = 1;
     h->hash_size--;
@@ -109,6 +109,6 @@ void heap_update_freq(TokenFreqHeap *h, const char *token, int new_freq) {
 int heap_len(TokenFreqHeap *h) { return h->hash_size; }
 
 int heap_contains(TokenFreqHeap *h, const char *token) {
-  HashEntry *entry = find_hash(h, token);
+  HeapHashEntry *entry = find_hash(h, token);
   return entry->key && !entry->removed;
 }
