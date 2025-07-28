@@ -65,3 +65,15 @@ void cache_put(LRUCache* cache, int key, int value) {
     cache->size++;
   }
 }
+
+void cache_destroy(LRUCache* cache) {
+  if (!cache) return;
+  Node* current = cache->head;
+  while (current) {
+    Node* next = current->next;
+    free(current);
+    current = next;
+  }
+  if (cache->hash) free(cache->hash);
+  free(cache);
+}

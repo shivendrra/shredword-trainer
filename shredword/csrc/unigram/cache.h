@@ -20,6 +20,7 @@ extern "C" {
   void move_to_end(LRUCache* cache, Node* node);
   int cache_get(LRUCache* cache, int key);
   void cache_put(LRUCache* cache, int key, int value);
+  void cache_destroy(LRUCache* cache);
 }
 
 #endif  //!__CACHE__H__

@@ -83,72 +83,38 @@ void viterbi_destroy(ViterbiDecoder *decoder) {
 }
 
 ViterbiResult* viterbi_decode(ViterbiDecoder *decoder, const char *text, FastHashMap *vocab) {
-  if (!decoder || !text || !vocab) return NULL;
-  
-  int n = strlen(text);
-  ViterbiState *dp = (ViterbiState*)malloc(sizeof(ViterbiState) * (n + 1));
-  
-  // Initialize DP table
-  for (int i = 0; i <= n; i++) {
-    dp[i].score = -FLT_MAX;
-    dp[i].parent = -1;
-  }
-  dp[0].score = 0.0f;
-  
-  // Dynamic programming
-  for (int i = 0; i < n; i++) {
-    if (dp[i].score == -FLT_MAX) continue;
-    for (int j = i + 1; j <= n && j - i <= 21; j++) {
-      char *token = (char*)malloc(j - i + 1);
-      strncpy(token, text + i, j - i);
-      token[j - i] = '\0';
-
-      if (hashmap_contains(vocab, token)) {
-        float score = dp[i].score + hashmap_get(vocab, token);
-        if (score > dp[j].score) {
-          dp[j].score = score;
-          dp[j].parent = i;
-        }
-      }
-      free(token);
-    }
-  }
+  if (!text || !vocab) return NULL;
   
   ViterbiResult *result = (ViterbiResult*)malloc(sizeof(ViterbiResult));
+  int len = strlen(text);
+  result->tokens = (char**)malloc(len * sizeof(char*));
+  result->count = 0;
   
-  // If no valid path found, return original text
-  if (dp[n].score == -FLT_MAX) {
-    result->count = 1;
-    result->tokens = (char**)malloc(sizeof(char*));
-    result->tokens[0] = strdup(text);
-    free(dp);
-    return result;
+  int i = 0;
+  while (i < len) {
+    int best_len = 1;
+    char best_token[17];
+    best_token[0] = text[i];
+    best_token[1] = '\0';
+    
+    // Try longer substrings first (greedy longest match)
+    for (int sub_len = 16; sub_len >= 1 && i + sub_len <= len; sub_len--) {
+      char candidate[17];
+      strncpy(candidate, text + i, sub_len);
+      candidate[sub_len] = '\0';
+      
+      if (hashmap_contains(vocab, candidate)) {
+        best_len = sub_len;
+        strcpy(best_token, candidate);
+        break;
+      }
+    }
+    
+    result->tokens[result->count] = strdup(best_token);
+    result->count++;
+    i += best_len;
   }
-
-  // Reconstruct path
-  int *path = (int*)malloc(sizeof(int) * (n + 1));
-  int path_len = 0;
-  int pos = n;
   
-  while (pos > 0) {
-    int start = dp[pos].parent;
-    path[path_len++] = start;
-    pos = start;
-  }
-
-  result->count = path_len;
-  result->tokens = (char**)malloc(sizeof(char*) * path_len);
-
-  for (int i = 0; i < path_len; i++) {
-    int start = path[path_len - 1 - i];
-    int end = (i == 0) ? n : path[path_len - i];
-    result->tokens[i] = (char*)malloc(end - start + 1);
-    strncpy(result->tokens[i], text + start, end - start);
-    result->tokens[i][end - start] = '\0';
-  }
-
-  free(dp);
-  free(path);
   return result;
 }
 
