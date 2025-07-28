@@ -10,7 +10,7 @@ typedef struct Node {
 } Node;
 
 typedef struct LRUCache {
-  size_t capacity, size;
+  size_t capacity, size, hash_size;
   Node *head, *tail;
   Node** hash;
 } LRUCache;
