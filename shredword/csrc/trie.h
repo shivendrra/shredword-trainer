@@ -13,25 +13,23 @@
 #include <stdbool.h>
 
 #define NUM_CHARS 256   // Maximum initial letters, since UTF-8 so 0-255
-
-// Forward declarations
-typedef struct StringInterner StringInterner;
-typedef struct HashVocabEntry HashVocabEntry;
+#define TRIE_CHILDREN 256
 
 typedef struct TrieNode {
-  struct TrieNode* children[256];
-  uint64_t frequency;
-  uint32_t string_id;
-  uint16_t depth;
-  bool is_terminal;
-} TrieNode; // Trie node for efficient substring storage
+  struct TrieNode *children[TRIE_CHILDREN];
+  int is_token, freq;
+} TrieNode;
+
+typedef struct SubwordTrie {
+  TrieNode *root;
+} SubwordTrie;
 
 extern "C" {
-  TrieNode* trie_create_node();
-  void trie_insert(TrieNode* root, StringInterner* interner, const char* str, size_t len, size_t min_freq);
-  void trie_collect_entries(TrieNode* node, HashVocabEntry* entries, size_t* count, size_t max_count, StringInterner* interner);
-  void trie_free(TrieNode* node);
-  int trie_count_words(TrieNode* node);
+  SubwordTrie* trie_create();
+  void trie_destroy(SubwordTrie *trie);
+  void trie_insert(SubwordTrie *trie, const char *token, int freq);
+  int trie_search(SubwordTrie *trie, const char *token);
+  void trie_get_all_tokens(SubwordTrie *trie, char ***tokens, int **freqs, int *count);
 }
 
 #endif
