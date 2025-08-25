@@ -5,9 +5,10 @@
 #include "trie.h"
 #include "inc/hash.h"
 
-// TrieNode functions
 static TrieNode* trie_node_create() {
   TrieNode *node = (TrieNode*)calloc(1, sizeof(TrieNode));
+  node->is_token = 0;
+  node->freq = 0;
   return node;
 }
 
@@ -55,32 +56,36 @@ int trie_search(SubwordTrie *trie, const char *token) {
 }
 
 static void trie_collect_tokens(TrieNode *node, char *prefix, int depth, char ***tokens, int **freqs, int *count, int *capacity) {
+  if (!node) return;
+
   if (node->is_token) {
     if (*count >= *capacity) {
       *capacity *= 2;
       *tokens = (char**)realloc(*tokens, sizeof(char*) * (*capacity));
       *freqs = (int*)realloc(*freqs, sizeof(int) * (*capacity));
     }
+    prefix[depth] = '\0';
     (*tokens)[*count] = strdup(prefix);
     (*freqs)[*count] = node->freq;
     (*count)++;
   }
+
   for (int i = 0; i < TRIE_CHILDREN; i++) {
-    if (node->children[i]) {
+    if (node->children[i] && depth < NUM_CHARS - 1) {
       prefix[depth] = (char)i;
-      prefix[depth + 1] = '\0';
       trie_collect_tokens(node->children[i], prefix, depth + 1, tokens, freqs, count, capacity);
     }
   }
 }
 
 void trie_get_all_tokens(SubwordTrie *trie, char ***tokens, int **freqs, int *count) {
-  if (!trie) return;
+  if (!trie || !tokens || !freqs || !count) return;
+
   *count = 0;
   int capacity = 1000;
   *tokens = (char**)malloc(sizeof(char*) * capacity);
   *freqs = (int*)malloc(sizeof(int) * capacity);
   char prefix[NUM_CHARS];
-  prefix[0] = '\0';
+  memset(prefix, 0, NUM_CHARS);
   trie_collect_tokens(trie->root, prefix, 0, tokens, freqs, count, &capacity);
 }

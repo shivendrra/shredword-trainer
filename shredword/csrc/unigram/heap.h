@@ -20,6 +20,7 @@ typedef struct {
 
 extern "C" {
   TokenFreqHeap* heap_create();
+  void heap_destroy(TokenFreqHeap *h);
   void heap_swap(HeapEntry *a, HeapEntry *b);
   void heap_up(TokenFreqHeap *h, int idx);
   void heap_down(TokenFreqHeap *h, int idx);

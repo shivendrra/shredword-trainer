@@ -1,10 +1,11 @@
 #include <float.h>
+#include <string.h>
+#include <stdlib.h>
 #include "utils.h"
 #include "subword.h"
 #include "../inc/hash.h"
 #include "cache.h"
 
-// SubwordSet functions
 SubwordSet* subword_set_create() {
   SubwordSet *set = (SubwordSet*)malloc(sizeof(SubwordSet));
   set->capacity = 1000;
@@ -15,7 +16,7 @@ SubwordSet* subword_set_create() {
 
 void subword_set_destroy(SubwordSet *set) {
   if (!set) return;
-  for (int i = 0; i < set->size; i++) free(set->items[i]);
+  for (size_t i = 0; i < set->size; i++) { if (set->items[i]) free(set->items[i]); }
   free(set->items);
   free(set);
 }
@@ -33,11 +34,10 @@ void subword_set_add(SubwordSet *set, const char *item) {
 
 int subword_set_contains(SubwordSet *set, const char *item) {
   if (!set || !item) return 0;
-  for (int i = 0; i < set->size; i++) { if (strcmp(set->items[i], item) == 0) return 1; }
+  for (size_t i = 0; i < set->size; i++) { if (set->items[i] && strcmp(set->items[i], item) == 0) return 1; }
   return 0;
 }
 
-// SubwordExtractor functions
 SubwordExtractor* extractor_create() {
   SubwordExtractor *extractor = (SubwordExtractor*)malloc(sizeof(SubwordExtractor));
   extractor->cache = cache_create(50000);
@@ -46,22 +46,20 @@ SubwordExtractor* extractor_create() {
 
 void extractor_destroy(SubwordExtractor *extractor) {
   if (!extractor) return;
-  free(extractor->cache);
+  cache_destroy((LRUCache*)extractor->cache);
   free(extractor);
 }
 
 SubwordSet* extract_subwords(SubwordExtractor *extractor, const char *text, int max_len) {
   if (!extractor || !text) return NULL;
-  
   int text_len = strlen(text);
-  uint32_t cache_key = djb2_hash(text) ^ max_len;
-  
   SubwordSet *subwords = subword_set_create();
   for (int i = 0; i < text_len; i++) {
     for (int j = i + 1; j <= text_len && j - i <= max_len; j++) {
-      char *subword = (char*)malloc(j - i + 1);
-      strncpy(subword, text + i, j - i);
-      subword[j - i] = '\0';
+      int sub_len = j - i;
+      char *subword = (char*)malloc(sub_len + 1);
+      strncpy(subword, text + i, sub_len);
+      subword[sub_len] = '\0';
       subword_set_add(subwords, subword);
       free(subword);
     }
@@ -69,7 +67,6 @@ SubwordSet* extract_subwords(SubwordExtractor *extractor, const char *text, int 
   return subwords;
 }
 
-// ViterbiDecoder functions
 ViterbiDecoder* viterbi_create() {
   ViterbiDecoder *decoder = (ViterbiDecoder*)malloc(sizeof(ViterbiDecoder));
   decoder->cache = cache_create(20000);
@@ -78,49 +75,48 @@ ViterbiDecoder* viterbi_create() {
 
 void viterbi_destroy(ViterbiDecoder *decoder) {
   if (!decoder) return;
-  free(decoder->cache);
+  cache_destroy((LRUCache*)decoder->cache);
   free(decoder);
 }
 
 ViterbiResult* viterbi_decode(ViterbiDecoder *decoder, const char *text, FastHashMap *vocab) {
-  if (!text || !vocab) return NULL;
-  
+  if (!decoder || !text || !vocab) return NULL;
+
   ViterbiResult *result = (ViterbiResult*)malloc(sizeof(ViterbiResult));
   int len = strlen(text);
   result->tokens = (char**)malloc(len * sizeof(char*));
   result->count = 0;
-  
+
   int i = 0;
   while (i < len) {
     int best_len = 1;
-    char best_token[17];
+    char best_token[MAX_SUBWORD_LEN + 1];
     best_token[0] = text[i];
     best_token[1] = '\0';
-    
-    // Try longer substrings first (greedy longest match)
-    for (int sub_len = 16; sub_len >= 1 && i + sub_len <= len; sub_len--) {
-      char candidate[17];
+
+    for (int sub_len = MAX_SUBWORD_LEN; sub_len >= 1 && i + sub_len <= len; sub_len--) {
+      char candidate[MAX_SUBWORD_LEN + 1];
       strncpy(candidate, text + i, sub_len);
       candidate[sub_len] = '\0';
-      
+
       if (hashmap_contains(vocab, candidate)) {
         best_len = sub_len;
         strcpy(best_token, candidate);
         break;
       }
     }
-    
+
     result->tokens[result->count] = strdup(best_token);
     result->count++;
     i += best_len;
   }
-  
+
   return result;
 }
 
 void viterbi_result_destroy(ViterbiResult *result) {
   if (!result) return;
-  for (int i = 0; i < result->count; i++) free(result->tokens[i]);
+  for (size_t i = 0; i < result->count; i++) { if (result->tokens[i]) free(result->tokens[i]); }
   free(result->tokens);
   free(result);
 }

@@ -28,7 +28,7 @@ void hashmap_destroy(FastHashMap *map) {
   free(map);
 }
 
-static void resize_hashmap(FastHashMap *map) {
+void resize_hashmap(FastHashMap *map) {
   HashEntry **old_buckets = map->buckets;
   int old_size = map->size;
   map->size *= 2, map->count = 0;

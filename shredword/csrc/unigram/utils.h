@@ -29,7 +29,7 @@ extern "C" {
   float hashmap_get(FastHashMap *map, const char *key);
   int hashmap_contains(FastHashMap *map, const char *key);
   void hashmap_remove(FastHashMap *map, const char *key);
-  static inline void resize_hashmap(FastHashMap *map);
+  void resize_hashmap(FastHashMap *map);
 }
 
 #endif
