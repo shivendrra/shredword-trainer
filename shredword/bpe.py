@@ -147,3 +147,80 @@ class BaseTokenizer:
         merges[(idx1, idx2)] = idx
         idx += 1
     self.merges, self.special_tokens, self.vocab = merges, special_tokens, build_vocab(merges, special_tokens)
+
+class BPETrainer(BaseTokenizer):
+  def __init__(self, pattern=None):
+    super().__init__()
+    # default GPT-4 pattern for pre-tokenization if none provided
+    self.pattern = pattern or r"""'(?i:[sdmt]|ll|ve|re)|[^\r\n\p{L}\p{N}]?+\p{L}+|\p{N}{1,3}| ?[^\s\p{L}\p{N}]++[\r\n]*|\s*[\r\n]|\s+(?!\S)|\s+"""
+    self.compiled_pattern = re.compile(self.pattern)
+
+  def train(self, text, vocab_size, verbose=False):
+    """
+      trains BPE tokenizer on given text to reach desired vocab_size
+      starts with base vocab of 256 bytes, then iteratively merges most frequent pairs
+      until vocab_size is reached
+    """
+    assert vocab_size >= 256
+    num_merges = vocab_size - 256
+    text_chunks = re.findall(self.compiled_pattern, text) # pre-tokenize the text using regex pattern
+    ids = [list(ch.encode("utf-8")) for ch in text_chunks]      # convert each chunk to list of bytes (UTF-8 encoded)
+
+    # iteratively merge the most frequent pairs
+    merges = {} # (int, int) -> int
+    vocab = {idx: bytes([idx]) for idx in range(256)} # int -> bytes
+    for i in range(num_merges):
+      # get statistics of all pairs across all chunks
+      stats = {}
+      for chunk_ids in ids:
+        chunk_stats = get_stats(chunk_ids)
+        for pair, count in chunk_stats.items(): stats[pair] = stats.get(pair, 0) + count
+      # find the pair with highest count
+      if not stats: break # no more pairs to merge
+      pair = max(stats, key=stats.get)
+      idx = 256 + i # new token id
+      if verbose: print(f"merge {i+1}/{num_merges}: {pair} -> {idx} ({stats[pair]} occurrences)")
+      ids = [merge(chunk_ids, pair, idx) for chunk_ids in ids]        # merge the pair in all chunks
+      # save the merge & update vocab
+      merges[pair] = idx
+      vocab[idx] = vocab[pair[0]] + vocab[pair[1]]
+    # save learned merges & vocab
+    self.merges = merges
+    self.vocab = vocab
+
+  def _encode_chunk(self, text_bytes):
+    """encode a single chunk of text bytes using learned merges"""
+    ids = list(text_bytes)
+    while len(ids) >= 2:
+      stats = get_stats(ids)  # get all pair statistics
+      pair = min(stats, key=lambda x: self.merges.get(x, float("inf"))) # find the pair with lowest merge index (earliest learned)
+      if pair not in self.merges: break # if pair not in merges, we can't merge anymore
+      # merge the pair
+      idx = self.merges[pair]
+      ids = merge(ids, pair, idx)
+    return ids
+
+  def encode(self, text):
+    """encode text into list of token ids using BPE"""
+    # handle special tokens first if any
+    # for now, simple implementation without special token handling
+    # pre-tokenize using regex
+    text_chunks = re.findall(self.compiled_pattern, text)
+    # encode each chunk
+    ids = []
+    for chunk in text_chunks:
+      chunk_bytes = chunk.encode("utf-8")
+      chunk_ids = self._encode_chunk(chunk_bytes)
+      ids.extend(chunk_ids)
+    return ids
+
+  def decode(self, ids):
+    """decode list of token ids back to text"""
+    # convert tokens to bytes
+    text_bytes = b""
+    for idx in ids:
+      if idx in self.vocab: text_bytes += self.vocab[idx]
+      else: raise ValueError(f"invalid token id: {idx}")
+    # decode bytes to text
+    text = text_bytes.decode("utf-8", errors="replace")
+    return text
