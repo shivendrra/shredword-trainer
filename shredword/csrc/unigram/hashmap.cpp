@@ -3,7 +3,7 @@
 #include <string.h>
 #include <stdbool.h>
 #include "hashmap.h"
-#include "inc/hash.h"
+#include "../inc/hash.h"
 
 FastHashMap* hashmapCreate(int initial_size) {
   if (initial_size <= 0) initial_size = INITIAL_SIZE;
@@ -16,7 +16,7 @@ FastHashMap* hashmapCreate(int initial_size) {
   return map;
 }
 
-static HashEntry* createEntry(const char* key, void* value) {
+HashEntry* createEntry(const char* key, void* value) {
   if (!key || strlen(key) >= MAX_KEY_LEN) return NULL;
   HashEntry* entry = (HashEntry*)malloc(sizeof(HashEntry));
   if (!entry) return NULL;
@@ -26,14 +26,14 @@ static HashEntry* createEntry(const char* key, void* value) {
   return entry;
 }
 
-static void destroyEntry(HashEntry* entry, void (*destructor)(void*)) {
+void destroyEntry(HashEntry* entry, void (*destructor)(void*)) {
   if (!entry) return;
   free(entry->key);
   if (destructor && entry->value) destructor(entry->value);
   free(entry);
 }
 
-static bool hashMapResize(FastHashMap* map) {
+bool hashMapResize(FastHashMap* map) {
   if (!map) return false;
 
   HashEntry** old_buckets = map->buckets;
@@ -129,7 +129,7 @@ void hashMapSetDestructor(FastHashMap* map, void (*destructor)(void*)) { if (map
 bool hashMapContains(FastHashMap* map, const char* key) { return hashMapGet(map, key) != NULL; }
 int hashMapSize(FastHashMap* map) { return map ? map->count : 0; }
 bool hashMapEmpty(FastHashMap* map) { return !map || map->count == 0; }
-static void print_int_value(const char* key, void* value) { printf("  %s: %d\n", key, *(int*)value); }  // helper
+void print_int_value(const char* key, void* value) { printf("  %s: %d\n", key, *(int*)value); }  // helper
 void hashMapIteratorDestroy(HashMapIterator* iter) { free(iter); }
 
 HashMapIterator* hashMapIteratorCreate(FastHashMap* map) {
