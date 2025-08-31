@@ -16,7 +16,7 @@ typedef struct LRUCache {
 } LRUCache;
 
 extern "C" {
-  LRUCache* cache_create(size_t capacity);
+  LRUCache* cacheCreate(size_t capacity);
   void addNode(LRUCache* cache, Node* node);
   void removeNode(Node* node);
   void moveToHead(LRUCache* cache, Node* node);

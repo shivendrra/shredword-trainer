@@ -4,7 +4,7 @@
 #include "cache.h"
 #include "../inc/hash.h"
 
-LRUCache* cache_create(size_t capacity) {
+LRUCache* cacheCreate(size_t capacity) {
   LRUCache* cache = (LRUCache*)malloc(sizeof(LRUCache));
   cache->capacity = capacity;
   cache->size = 0;
