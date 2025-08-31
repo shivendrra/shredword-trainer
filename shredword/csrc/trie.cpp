@@ -5,47 +5,62 @@
 #include "trie.h"
 #include "inc/hash.h"
 
-static TrieNode* trie_node_create() {
+static TrieNode* trieNodeCreate() {
   TrieNode *node = (TrieNode*)calloc(1, sizeof(TrieNode));
-  node->is_token = 0;
+  if (!node) return NULL;
+  node->is_token = false;
   node->freq = 0;
   return node;
 }
 
-static void trie_node_destroy(TrieNode *node) {
+static void trieNodeDestroy(TrieNode *node) {
   if (!node) return;
-  for (int i = 0; i < TRIE_CHILDREN; i++) {
-    if (node->children[i]) trie_node_destroy(node->children[i]);
-  }
+  for (int i = 0; i < TRIE_CHILDREN; i++) { if (node->children[i]) trieNodeDestroy(node->children[i]); }
   free(node);
 }
 
-SubwordTrie* trie_create() {
+SubwordTrie* trieCreate() {
   SubwordTrie *trie = (SubwordTrie*)malloc(sizeof(SubwordTrie));
-  trie->root = trie_node_create();
+  if (!trie) return NULL;
+
+  trie->root = trieNodeCreate();
+  if (!trie->root) {
+    free(trie);
+    return NULL;
+  }
+
+  trie->total_tokens = 0;
   return trie;
 }
 
-void trie_destroy(SubwordTrie *trie) {
+void trieDestroy(SubwordTrie *trie) {
   if (!trie) return;
-  trie_node_destroy(trie->root);
+  trieNodeDestroy(trie->root);
   free(trie);
 }
 
-void trie_insert(SubwordTrie *trie, const char *token, int freq) {
-  if (!trie || !token) return;
+bool trieInsert(SubwordTrie *trie, const char *token, int freq) {
+  if (!trie || !token || freq < 0 || strlen(token) >= MAX_TOKEN_LENGTH) return false;
+
   TrieNode *node = trie->root;
   for (const char *p = token; *p; p++) {
     unsigned char c = (unsigned char)*p;
-    if (!node->children[c]) node->children[c] = trie_node_create();
+    if (!node->children[c]) {
+      node->children[c] = trieNodeCreate();
+      if (!node->children[c]) return false;
+    }
     node = node->children[c];
   }
-  node->is_token = 1;
+
+  if (!node->is_token) trie->total_tokens++;
+  node->is_token = true;
   node->freq = freq;
+  return true;
 }
 
-int trie_search(SubwordTrie *trie, const char *token) {
+int trieSearch(SubwordTrie *trie, const char *token) {
   if (!trie || !token) return -1;
+
   TrieNode *node = trie->root;
   for (const char *p = token; *p; p++) {
     unsigned char c = (unsigned char)*p;
@@ -55,37 +70,100 @@ int trie_search(SubwordTrie *trie, const char *token) {
   return node->is_token ? node->freq : -1;
 }
 
-static void trie_collect_tokens(TrieNode *node, char *prefix, int depth, char ***tokens, int **freqs, int *count, int *capacity) {
-  if (!node) return;
+static bool trieNodeHasChildren(TrieNode *node) {
+  if (!node) return false;
+  for (int i = 0; i < TRIE_CHILDREN; i++) { if (node->children[i]) return true; }
+  return false;
+}
+
+static bool trieRemoveHelper(TrieNode *node, const char *token, int depth) {
+  if (!node) return false;
+
+  if (token[depth] == '\0') {
+    if (!node->is_token) return false;
+    node->is_token = false;
+    node->freq = 0;
+    return !trieNodeHasChildren(node);
+  }
+  unsigned char c = (unsigned char)token[depth];
+  TrieNode *child = node->children[c];
+  if (!child) return false;
+  bool should_delete_child = trieRemoveHelper(child, token, depth + 1);
+  if (should_delete_child) {
+    trieNodeDestroy(child);
+    node->children[c] = NULL;
+  }
+  return !node->is_token && !trieNodeHasChildren(node);
+}
+
+bool trieRemove(SubwordTrie *trie, const char *token) {
+  if (!trie || !token) return false;
+  if (!trieContains(trie, token)) return false;
+  trieRemoveHelper(trie->root, token, 0);
+  trie->total_tokens--;
+  return true;
+}
+
+bool trieUpdateFreq(SubwordTrie *trie, const char *token, int new_freq) {
+  if (!trie || !token || new_freq < 0) return false;
+
+  TrieNode *node = trie->root;
+  for (const char *p = token; *p; p++) {
+    unsigned char c = (unsigned char)*p;
+    if (!node->children[c]) return false;
+    node = node->children[c];
+  }
+
+  if (!node->is_token) return false;
+  node->freq = new_freq;
+  return true;
+}
+
+static void trieCollectTokens(TrieNode *node, char *prefix, int depth, char ***tokens, int **freqs, int *count, int *capacity) {
+  if (!node || depth >= MAX_TOKEN_LENGTH - 1) return;
 
   if (node->is_token) {
     if (*count >= *capacity) {
-      *capacity *= 2;
-      *tokens = (char**)realloc(*tokens, sizeof(char*) * (*capacity));
-      *freqs = (int*)realloc(*freqs, sizeof(int) * (*capacity));
+      int new_capacity = (*capacity) * 2;
+      char **new_tokens = (char**)realloc(*tokens, sizeof(char*) * new_capacity);
+      int *new_freqs = (int*)realloc(*freqs, sizeof(int) * new_capacity);
+      *tokens = new_tokens;
+      *freqs = new_freqs;
+      *capacity = new_capacity;
     }
+
     prefix[depth] = '\0';
     (*tokens)[*count] = strdup(prefix);
+    if (!(*tokens)[*count]) return;
+
     (*freqs)[*count] = node->freq;
     (*count)++;
   }
-
   for (int i = 0; i < TRIE_CHILDREN; i++) {
-    if (node->children[i] && depth < NUM_CHARS - 1) {
+    if (node->children[i]) {
       prefix[depth] = (char)i;
-      trie_collect_tokens(node->children[i], prefix, depth + 1, tokens, freqs, count, capacity);
+      trieCollectTokens(node->children[i], prefix, depth + 1, tokens, freqs, count, capacity);
     }
   }
 }
 
-void trie_get_all_tokens(SubwordTrie *trie, char ***tokens, int **freqs, int *count) {
+void trieGetAllTokens(SubwordTrie *trie, char ***tokens, int **freqs, int *count) {
   if (!trie || !tokens || !freqs || !count) return;
 
   *count = 0;
   int capacity = 1000;
   *tokens = (char**)malloc(sizeof(char*) * capacity);
   *freqs = (int*)malloc(sizeof(int) * capacity);
-  char prefix[NUM_CHARS];
-  memset(prefix, 0, NUM_CHARS);
-  trie_collect_tokens(trie->root, prefix, 0, tokens, freqs, count, &capacity);
+  char prefix[MAX_TOKEN_LENGTH];
+  memset(prefix, 0, MAX_TOKEN_LENGTH);
+  trieCollectTokens(trie->root, prefix, 0, tokens, freqs, count, &capacity);
 }
+
+void trieFreeTokens(char **tokens, int count) {
+  if (!tokens) return;
+  for (int i = 0; i < count; i++) { free(tokens[i]); }
+  free(tokens);
+}
+
+bool trieContains(SubwordTrie *trie, const char *token) { return trieSearch(trie, token) != -1; }
+int trieGetTokenCount(SubwordTrie *trie) { return trie ? trie->total_tokens : 0; }
