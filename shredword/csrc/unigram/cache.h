@@ -12,15 +12,16 @@ typedef struct Node {
 typedef struct LRUCache {
   size_t capacity, size, hash_size;
   Node *head, *tail;
-  Node** hash;
+  Node** hash_table;
 } LRUCache;
 
 extern "C" {
   LRUCache* cache_create(size_t capacity);
-  void move_to_end(LRUCache* cache, Node* node);
-  int cache_get(LRUCache* cache, int key);
-  void cache_put(LRUCache* cache, int key, int value);
-  void cache_destroy(LRUCache* cache);
+  void addNode(LRUCache* cache, Node* node);
+  void removeNode(Node* node);
+  void moveToHead(LRUCache* cache, Node* node);
+  Node* popTail(LRUCache* cache);
+  int cacheGet(LRUCache* cache, int key);
 }
 
 #endif  //!__CACHE__H__
