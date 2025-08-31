@@ -1,5 +1,5 @@
-#ifndef __SUBWORD_H__
-#define __SUBWORD_H__
+#ifndef __HASHMAP_H__
+#define __HASHMAP_H__
 
 #include <stdint.h>
 #include <stdlib.h>

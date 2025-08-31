@@ -5,7 +5,7 @@
 #include "hashmap.h"
 #include "inc/hash.h"
 
-FastHashMap* hashMapCreate(int initial_size) {
+FastHashMap* hashmapCreate(int initial_size) {
   if (initial_size <= 0) initial_size = INITIAL_SIZE;
 
   FastHashMap* map = (FastHashMap*)malloc(sizeof(FastHashMap));

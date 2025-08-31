@@ -22,6 +22,8 @@ extern "C" {
   void moveToHead(LRUCache* cache, Node* node);
   Node* popTail(LRUCache* cache);
   int cacheGet(LRUCache* cache, int key);
+  void cachePut(LRUCache* cache, int key, int value);
+  void cacheFree(LRUCache* cache);
 }
 
 #endif  //!__CACHE__H__
