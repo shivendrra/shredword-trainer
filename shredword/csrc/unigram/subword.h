@@ -50,7 +50,7 @@ extern "C" {
   // ViterbiDecoder functions  
   ViterbiDecoder* viterbiDecoderCreate();
   void viterbiDecoderDestroy(ViterbiDecoder* decoder);
-  TokenList* viterbiDecoder(ViterbiDecoder* decoder, const char* text, FastHashMap* vocab);
+  TokenList* viterbiDecode(ViterbiDecoder* decoder, const char* text, FastHashMap* vocab);
   void tokenListDestroy(TokenList* list);
 
   // Utility functions
