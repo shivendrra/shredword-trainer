@@ -1,125 +1,212 @@
+#include "unigram/unigram.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "unigram/unigram.h"
+#include <time.h>
 
-#define MAX_LINE_LENGTH 2048
-#define MAX_RUN_TEXTS 100000
+#define MAX_LINE_LENGTH 8192
+#define DEFAULT_NUM_ITERATIONS 20
+#define MAX_TEXT_LINES 100000
 
-char** read_text_file(const char* filepath, int* text_count) {
-  FILE* file = fopen(filepath, "r");
+void printUsage(const char* program_name) {
+  printf("Usage: %s <input_file> [options]\n", program_name);
+  printf("Options:\n");
+  printf("  --vocab_size <size>        Vocabulary size (default: 32000)\n");
+  printf("  --coverage <coverage>      Character coverage (default: 0.9995)\n");
+  printf("  --max_len <length>         Max token length (default: 16)\n");
+  printf("  --seed_size <size>         Seed vocabulary size (default: 1000000)\n");
+  printf("  --iterations <num>         Training iterations (default: 20)\n");
+  printf("  --output <file>            Output vocabulary file (default: vocab.txt)\n");
+  printf("  --help                     Show this help message\n");
+  printf("\nExample:\n");
+  printf("  %s train.txt --vocab_size 16000 --output my_vocab.txt\n", program_name);
+}
+
+char** readTextFile(const char* filename, int* text_count) {
+  FILE* file = fopen(filename, "r");
   if (!file) {
-    printf("Error: Could not open file %s\n", filepath);
+    printf("Error: Cannot open file '%s'\n", filename);
     return NULL;
   }
-
-  char** texts = (char**)malloc(MAX_RUN_TEXTS * sizeof(char*));
+  char** texts = (char**)malloc(MAX_TEXT_LINES * sizeof(char*));
+  if (!texts) {
+    fclose(file);
+    return NULL;
+  }
   char line[MAX_LINE_LENGTH];
   int count = 0;
-
-  while (fgets(line, sizeof(line), file) && count < MAX_RUN_TEXTS) {
+  while (fgets(line, sizeof(line), file) && count < MAX_TEXT_LINES) {
     size_t len = strlen(line);
     if (len > 0 && line[len-1] == '\n') {
       line[len-1] = '\0';
       len--;
     }
-    
     if (len > 0) {
-      texts[count] = (char*)malloc((len + 1) * sizeof(char));
-      strcpy(texts[count], line);
-      count++;
+      texts[count] = (char*)malloc(len + 1);
+      if (texts[count]) {
+        strcpy(texts[count], line);
+        count++;
+      }
     }
   }
-
   fclose(file);
   *text_count = count;
-  printf("Read %d lines from %s\n", count, filepath);
+  if (count == 0) {
+    free(texts);
+    return NULL;
+  }
   return texts;
 }
 
-void free_texts(char** texts, int count) {
+void freeTexts(char** texts, int text_count) {
   if (!texts) return;
-  for (int i = 0; i < count; i++) {
-    if (texts[i]) free(texts[i]);
-  }
+  for (int i = 0; i < text_count; i++) { if (texts[i]) free(texts[i]); }
   free(texts);
 }
 
-void print_sample_vocab(FastHashMap* vocab, int sample_size) {
-  printf("\nSample vocabulary (first %d tokens):\n", sample_size);
-  printf("Token\t\tScore\n");
-  printf("-----\t\t-----\n");
+int parseArgs(int argc, char* argv[], char** input_file, const char** output_file, int* vocab_size, float* coverage, int* max_len, int* seed_size, int* iterations) {
+  if (argc < 2) return 0;
 
-  int printed = 0;
-  for (int i = 0; i < vocab->size && printed < sample_size; i++) {
-    HashEntry *entry = vocab->buckets[i];
-    while (entry && printed < sample_size) {
-      printf("'%s'\t\t%.4f\n", entry->key, entry->value);
-      printed++;
-      entry = entry->next;
+  *input_file = argv[1];
+  *output_file = "vocab.txt";
+  *vocab_size = DEFAULT_VOCAB_SIZE;
+  *coverage = DEFAULT_CHARACTER_COVERAGE;
+  *max_len = DEFAULT_MAX_SENTENCEPIECE_LENGTH;
+  *seed_size = DEFAULT_SEED_SIZE;
+  *iterations = DEFAULT_NUM_ITERATIONS;
+
+  for (int i = 2; i < argc; i++) {
+    if (strcmp(argv[i], "--help") == 0) { return 0;}
+    else if (strcmp(argv[i], "--vocab_size") == 0 && i + 1 < argc) {
+      *vocab_size = atoi(argv[++i]);
+      if (*vocab_size <= 0) {
+        printf("Error: Invalid vocab_size '%s'\n", argv[i]);
+        return 0;
+      }
+    } else if (strcmp(argv[i], "--coverage") == 0 && i + 1 < argc) {
+      *coverage = atof(argv[++i]);
+      if (*coverage <= 0 || *coverage > 1.0) {
+        printf("Error: Invalid coverage '%s' (should be between 0 and 1)\n", argv[i]);
+        return 0;
+      }
+    } else if (strcmp(argv[i], "--max_len") == 0 && i + 1 < argc) {
+      *max_len = atoi(argv[++i]);
+      if (*max_len <= 0 || *max_len > MAX_TOKEN_LEN) {
+        printf("Error: Invalid max_len '%s' (should be 1-%d)\n", argv[i], MAX_TOKEN_LEN);
+        return 0;
+      }
+    } else if (strcmp(argv[i], "--seed_size") == 0 && i + 1 < argc) {
+      *seed_size = atoi(argv[++i]);
+      if (*seed_size <= 0) {
+        printf("Error: Invalid seed_size '%s'\n", argv[i]);
+        return 0;
+      }
+    } else if (strcmp(argv[i], "--iterations") == 0 && i + 1 < argc) {
+      *iterations = atoi(argv[++i]);
+      if (*iterations <= 0) {
+        printf("Error: Invalid iterations '%s'\n", argv[i]);
+        return 0;
+      }
+    } else if (strcmp(argv[i], "--output") == 0 && i + 1 < argc) { *output_file = argv[++i]; }
+    else {
+      printf("Error: Unknown option '%s'\n", argv[i]);
+      return 0;
     }
   }
+  return 1;
+}
+void printConfig(const char* input_file, const char* output_file, int vocab_size, float coverage, int max_len, int seed_size, int iterations) {
+  printf("=== Unigram Tokenizer Training Configuration ===\n");
+  printf("Input file:          %s\n", input_file);
+  printf("Output file:         %s\n", output_file);
+  printf("Vocabulary size:     %d\n", vocab_size);
+  printf("Character coverage:  %.4f\n", coverage);
+  printf("Max token length:    %d\n", max_len);
+  printf("Seed vocab size:     %d\n", seed_size);
+  printf("Training iterations: %d\n", iterations);
+  printf("=================================================\n\n");
+}
+
+void printVocabStats(FastHashMap* vocab) {
+  if (!vocab) return;
+  int total_tokens = hashMapSize(vocab);
+  int single_char = 0, short_tokens = 0, long_tokens = 0;
+  float total_score = 0.0f;
+  HashMapIterator* iter = hashMapIteratorCreate(vocab);
+  const char* key;
+  void* value;
+  while (hashMapIteratorNext(iter, &key, &value)) {
+    VocabEntry* entry = (VocabEntry*)value;
+    total_score += entry->score;
+
+    int len = strlen(key);
+    if (len == 1) single_char++;
+    else if (len <= 4) short_tokens++;
+    else long_tokens++;
+  }
+  hashMapIteratorDestroy(iter);
+
+  printf("\n=== Vocabulary Statistics ===\n");
+  printf("Total tokens:      %d\n", total_tokens);
+  printf("Single characters: %d (%.1f%%)\n", single_char, 100.0f * single_char / total_tokens);
+  printf("Short tokens (2-4): %d (%.1f%%)\n", short_tokens, 100.0f * short_tokens / total_tokens);
+  printf("Long tokens (5+):  %d (%.1f%%)\n", long_tokens, 100.0f * long_tokens / total_tokens);
+  printf("Average score:     %.4f\n", total_score / total_tokens);
+  printf("=============================\n");
 }
 
 int main(int argc, char* argv[]) {
-  if (argc < 2) {
-    printf("Usage: %s <input_file> [vocab_size] [output_vocab_file]\n", argv[0]);
-    printf("Example: %s corpus.txt 8000 vocab.txt\n", argv[0]);
+  char* input_file;
+  const char *output_file;
+  int vocab_size, max_len, seed_size, iterations;
+  float coverage;
+
+  if (!parseArgs(argc, argv, &input_file, &output_file, &vocab_size, &coverage, &max_len, &seed_size, &iterations)) {
+    printUsage(argv[0]);
     return 1;
   }
 
-  const char* input_file = argv[1];
-  int vocab_size = (argc > 2) ? atoi(argv[2]) : DEFAULT_VOCAB_SIZE;
-  const char* output_file = (argc > 3) ? argv[3] : NULL;
+  printConfig(input_file, output_file, vocab_size, coverage, max_len, seed_size, iterations);
+  printf("Reading training data from '%s'...\n", input_file);
+  int text_count;
+  char** texts = readTextFile(input_file, &text_count);
 
-  printf("Starting Unigram vocabulary training...\n");
-  printf("Input file: %s\n", input_file);
-  printf("Target vocabulary size: %d\n", vocab_size);
-
-  int text_count = 0;
-  char** texts = read_text_file(input_file, &text_count);
-  
-  if (!texts || text_count == 0) {
-    printf("Error: No texts loaded from file\n");
+  if (!texts) {
+    printf("Error: Failed to read training data\n");
     return 1;
   }
+  printf("Loaded %d lines of text\n", text_count);
+  printf("Creating unigram trainer...\n");
+  UnigramTrainer* trainer = unigramTrainerCreate(vocab_size, coverage, max_len, seed_size);
 
-  UnigramTrainer* trainer = trainer_create(vocab_size, DEFAULT_COVERAGE, DEFAULT_MAX_LEN, DEFAULT_SEED_SIZE);
   if (!trainer) {
     printf("Error: Failed to create trainer\n");
-    free_texts(texts, text_count);
+    freeTexts(texts, text_count);
     return 1;
   }
+  printf("Starting training...\n");
+  clock_t start_time = clock();
+  FastHashMap* final_vocab = trainUnigram(trainer, texts, text_count, iterations);
+  clock_t end_time = clock();
+  double training_time = ((double)(end_time - start_time)) / CLOCKS_PER_SEC;
 
-  printf("\nTraining parameters:\n");
-  printf("  Vocabulary size: %d\n", trainer->vocab_size);
-  printf("  Character coverage: %.4f\n", trainer->character_coverage);
-  printf("  Max token length: %d\n", trainer->max_len);
-  printf("  Seed size: %d\n", trainer->seed_size);
-  printf("  Training texts: %d\n", text_count);
-
-  FastHashMap* final_vocab = train_unigram(trainer, texts, text_count, MAX_ITERATIONS);
-  
   if (!final_vocab) {
     printf("Error: Training failed\n");
-    trainer_destroy(trainer);
-    free_texts(texts, text_count);
+    unigramTrainerDestroy(trainer);
+    freeTexts(texts, text_count);
     return 1;
   }
 
-  printf("\nTraining completed successfully!\n");
-  printf("Final vocabulary size: %d\n", final_vocab->count);
+  printf("\nTraining completed in %.2f seconds\n", training_time);
+  printVocabStats(final_vocab);
+  printf("Saving vocabulary to '%s'...\n", output_file);
+  if (saveVocab(trainer, output_file)) { printf("Vocabulary saved successfully!\n"); }
+  else { printf("Error: Failed to save vocabulary\n"); }
 
-  print_sample_vocab(final_vocab, 20);
+  printf("\nCleaning up...\n");
+  unigramTrainerDestroy(trainer);
+  freeTexts(texts, text_count);
 
-  if (output_file) {
-    save_vocab(trainer, output_file);
-    printf("\nVocabulary saved to: %s\n", output_file);
-  }
-
-  trainer_destroy(trainer);
-  free_texts(texts, text_count);
-  
-  printf("\nTraining session completed.\n");
+  printf("Done!\n");
   return 0;
 }

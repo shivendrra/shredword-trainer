@@ -21,7 +21,7 @@ extern "C" {
 
 #define NUM_CHARS 256
 #define TRIE_CHILDREN 256
-#define MAX_TOKEN_LEN 16
+#define MAX_TOKEN_LENGTH 16
 
 typedef struct TrieNode {
   struct TrieNode* children[TRIE_CHILDREN];
@@ -65,7 +65,7 @@ void trieDestroy(SubwordTrie* trie) {
 }
 
 bool trieInsert(SubwordTrie* trie, const char* token, int freq) {
-  if (!trie || !token || freq < 0 || strlen(token) == 0 || strlen(token) >= MAX_TOKEN_LEN) return false;
+  if (!trie || !token || freq < 0 || strlen(token) == 0 || strlen(token) >= MAX_TOKEN_LENGTH) return false;
   TrieNode* node = trie->root;
   for (const char* p = token; *p; p++) {
     unsigned char c = (unsigned char)*p;
@@ -150,7 +150,7 @@ bool trieUpdateFreq(SubwordTrie* trie, const char* token, int new_freq) {
 }
 
 static void trieCollectTokens(TrieNode* node, char* prefix, int depth, char*** tokens, int** freq, int* count, int* capacity) {
-  if (!node || depth >= MAX_TOKEN_LEN - 1) return;
+  if (!node || depth >= MAX_TOKEN_LENGTH - 1) return;
 
   if (node->is_token) {
     if (*count >= *capacity) {
@@ -180,8 +180,8 @@ void trieGetAllTokens(SubwordTrie* trie, char*** tokens, int** freq, int* count)
   int capacity = 100;
   *tokens = (char**)malloc(capacity * sizeof(char*));
   *freq = (int*)malloc(capacity * sizeof(int));
-  char prefix[MAX_TOKEN_LEN];
-  memset(prefix, 0, MAX_TOKEN_LEN);
+  char prefix[MAX_TOKEN_LENGTH];
+  memset(prefix, 0, MAX_TOKEN_LENGTH);
   trieCollectTokens(trie->root, prefix, 0, tokens, freq, count, &capacity);
 }
 
