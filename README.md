@@ -96,14 +96,4 @@ merges = [(101, 32, 256), (32, 116, 257)]
 tokenizer.merges = merges
 ```
 
-## Contributing
-
-We welcome contributions! Feel free to open an issue or submit a pull request if you have ideas for improvement.
-
-## License
-
-This project is licensed under the MIT License. See the `LICENSE` file for details.
-
-## Acknowledgments
-
-ShredWord was inspired by the need for efficient and flexible tokenization in modern NLP pipelines. Special thanks to contributors and the open-source community for their support.
+work in progress by Shivendra

@@ -1,5 +1,5 @@
 // test case for BPE trainer
-// Compilation: g++ -o run bpe_test.cpp ../shred/csrc/bpe/bpe.cpp ../shred/csrc/bpe/histogram.cpp ../shred/csrc/bpe/hash.cpp ../shred/csrc/bpe/heap.cpp
+// Compilation: g++ -o run bpe_test.cpp ../shredword/csrc/bpe/bpe.cpp ../shredword/csrc/bpe/histogram.cpp ../shredword/csrc/bpe/hash.cpp ../shredword/csrc/bpe/heap.cpp
 // Usage: -> ./run
 
 #include <stdio.h>
@@ -7,10 +7,10 @@
 #include <string.h>
 #include <assert.h>
 #include <unistd.h>
-#include "../shred/csrc/bpe/bpe.h"
-#include "../shred/csrc/bpe/hash.h"
-#include "../shred/csrc/bpe/heap.h"
-#include "../shred/csrc/bpe/histogram.h"
+#include "../shredword/csrc/bpe/bpe.h"
+#include "../shredword/csrc/bpe/hash.h"
+#include "../shredword/csrc/bpe/heap.h"
+#include "../shredword/csrc/bpe/histogram.h"
 
 // Test utilities
 #define TEST_ASSERT(condition, message) \
