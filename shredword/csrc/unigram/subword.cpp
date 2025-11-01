@@ -89,30 +89,38 @@ void subwordExtractorDestroy(SubwordExtractor* extractor) {
 
 SubwordSet* extractSubwords(SubwordExtractor* extractor, const char* text, int max_len) {
   if (!extractor || !text || max_len <= 0) return NULL;
-  if (strlen(text) >= MAX_TEXT_LEN) return NULL;
-  if (max_len > MAX_TOKEN_LEN) max_len = MAX_TOKEN_LEN;
 
+  int text_len = strlen(text);
+  if (text_len == 0) return NULL;
+  if (text_len >= MAX_TEXT_LEN) text_len = MAX_TEXT_LEN - 1;
+  if (max_len > MAX_TOKEN_LEN) max_len = MAX_TOKEN_LEN;
   char* cache_key = createCacheKey(text, max_len);
-  if (!cache_key) return NULL;  
+  if (!cache_key) return NULL;
+
   uint32_t key_hash = murmur3_hash(cache_key, strlen(cache_key));
   int cached_result = cacheGet(extractor->cache, (int)key_hash);
 
   if (cached_result != -1) {
     free(cache_key);
-    // in practice, we'll store actual SubwordSet pointer, this is simplified
-    return NULL; // would return cached result
+    return NULL;
   }
 
-  int text_len = strlen(text);
-  SubwordSet* subwords = subwordSetCreate(text_len * max_len / 2);
+  int estimated_size = text_len * 10;
+  if (estimated_size > 100000) estimated_size = 100000;
+  SubwordSet* subwords = subwordSetCreate(estimated_size);
+  if (!subwords) {
+    free(cache_key);
+    return NULL;
+  }
   for (int i = 0; i < text_len; i++) {
-    int max_j = (i + max_len + 1 < text_len + 1) ? i + max_len + 1 : text_len + 1;
+    int max_j = i + max_len + 1;
+    if (max_j > text_len + 1) max_j = text_len + 1;
 
     for (int j = i + 1; j < max_j; j++) {
       int substr_len = j - i;
       if (substr_len >= MAX_TOKEN_LEN) continue;
       char substr[MAX_TOKEN_LEN];
-      strncpy(substr, text + i, substr_len);
+      memcpy(substr, text + i, substr_len);
       substr[substr_len] = '\0';
 
       if (!subwordSetAdd(subwords, substr)) {
@@ -222,35 +230,32 @@ void tokenListDestroy(TokenList* list) {
 
 TokenList* viterbiDecode(ViterbiDecoder* decoder, const char* text, FastHashMap* vocab) {
   if (!decoder || !text || !vocab) return NULL;
-
   int text_len = strlen(text);
+  if (text_len == 0) return tokenListCreate(1);
   if (text_len >= MAX_TEXT_LEN) return NULL;
-
-  uint32_t cache_key = (uint32_t)stringHash64(text);
-  int cached_result = cacheGet(decoder->cache, (int)cache_key);
-
-  if (cached_result != -1) {
-    // Would return cached TokenList
-  }
-  double* dp = (double*)malloc(sizeof(double) * (text_len + 1));
+  double* dp = (double*)calloc(text_len + 1, sizeof(double));
   int* parent = (int*)malloc(sizeof(int) * (text_len + 1));
-  for (int i = 0; i <= text_len; i++) {
-    dp[i] = -DBL_MAX;
+  if (!dp || !parent) {
+    free(dp);
+    free(parent);
+    return NULL;
+  }
+  
+  for (int i = 1; i <= text_len; i++) {
+    dp[i] = -1e9;
     parent[i] = -1;
   }
   dp[0] = 0.0;
 
   for (int i = 0; i < text_len; i++) {
-    if (dp[i] == -DBL_MAX) continue;
+    if (dp[i] < -1e8) continue;
     int max_j = (i + 21 < text_len + 1) ? i + 21 : text_len + 1;
     for (int j = i + 1; j < max_j; j++) {
       int token_len = j - i;
       if (token_len >= MAX_TOKEN_LEN) continue;
-
       char token[MAX_TOKEN_LEN];
       strncpy(token, text + i, token_len);
       token[token_len] = '\0';
-
       double* vocab_score = (double*)hashMapGet(vocab, token);
       if (vocab_score) {
         double score = dp[i] + *vocab_score;
@@ -260,18 +265,24 @@ TokenList* viterbiDecode(ViterbiDecoder* decoder, const char* text, FastHashMap*
         }
       }
     }
-  }  
-  if (dp[text_len] == -DBL_MAX) {
-    TokenList* result = tokenListCreate(1);
-    if (result) tokenListAdd(result, text);
+  }
+  
+  if (parent[text_len] == -1) {
+    TokenList* result = tokenListCreate(text_len);
+    if (result) {
+      for (int i = 0; i < text_len; i++) {
+        char single[2] = {text[i], '\0'};
+        tokenListAdd(result, single);
+      }
+    }
     free(dp);
     free(parent);
     return result;
   }
 
-  TokenList* path = tokenListCreate(text_len / 2);
+  TokenList* path = tokenListCreate(text_len / 2 + 1);
   int pos = text_len;
-  while (pos > 0) {
+  while (pos > 0 && parent[pos] != -1) {
     int start = parent[pos];
     int token_len = pos - start;
     char token[MAX_TOKEN_LEN];
@@ -283,17 +294,14 @@ TokenList* viterbiDecode(ViterbiDecoder* decoder, const char* text, FastHashMap*
       free(dp);
       free(parent);
       return NULL;
-    }    
-    pos = start;
+    } pos = start;
   }
 
-  // reversiign the path
   for (int i = 0; i < path->count / 2; i++) {
     char* temp = path->tokens[i];
     path->tokens[i] = path->tokens[path->count - 1 - i];
     path->tokens[path->count - 1 - i] = temp;
   }
-  cachePut(decoder->cache, (int)cache_key, 1);
   free(dp);
   free(parent);
   return path;
