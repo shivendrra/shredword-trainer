@@ -3,7 +3,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "heap.h"
-#include "../bpe/bpe.h"
+#include "bpe.h"
 #include "hash.h"
 
 /**

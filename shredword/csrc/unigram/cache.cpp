@@ -49,7 +49,7 @@ int cacheGet(LRUCache* cache, int key) {
     fprintf(stderr, "Invalid input, NULL value of LRUCache Pointer!\n");
     exit(EXIT_FAILURE);
   }
-  int index = cache_hash(key, cache->capacity);
+  int index = cache_hash(key, cache->hash_size);
   Node* node = cache->hash_table[index];
   while (node) {
     if (node->key == key) {
@@ -66,7 +66,7 @@ void cachePut(LRUCache* cache, int key, int value) {
     fprintf(stderr, "Invalid input, NULL value of LRUCache Pointer!\n");
     exit(EXIT_FAILURE);
   }
-  int index = cache_hash(key, cache->capacity);
+  int index = cache_hash(key, cache->hash_size);
   Node* node = cache->hash_table[index];
   Node* prev = NULL;
 
@@ -91,20 +91,17 @@ void cachePut(LRUCache* cache, int key, int value) {
     addNode(cache, new_node);
   } else {
     Node* tail = popTail(cache);
-    int tail_index = cache_hash(tail->key, cache->capacity);
+    int tail_index = cache_hash(tail->key, cache->hash_size);
     Node* hash_node = cache->hash_table[tail_index];
     Node* hash_prev = NULL;
-
-    while (hash_prev && hash_prev->key != tail->key) {
+    while (hash_node && hash_node->key != tail->key) {
       hash_prev = hash_node;
       hash_node = hash_node->next;
     }
-
     if (hash_node) {
       if (hash_prev) hash_prev->next = hash_node->next;
       else cache->hash_table[tail_index] = hash_node->next;
     }
-
     free(tail);
     addNode(cache, new_node);
   }
@@ -113,9 +110,7 @@ void cachePut(LRUCache* cache, int key, int value) {
     Node* temp = cache->hash_table[index];
     while (temp->next) temp = temp->next;
     temp->next = new_node;
-  } else {
-    cache->hash_table[index] = new_node;
-  }
+  } else { cache->hash_table[index] = new_node; }
 }
 
 void cacheFree(LRUCache* cache) {
@@ -129,15 +124,13 @@ void cacheFree(LRUCache* cache) {
     free(current);
     current = next;
   }
-
-  for (int i = 0; i < cache->capacity * 2; i++) {
+  for (int i = 0; i < cache->hash_size; i++) {
     Node* node = cache->hash_table[i];
     while (node) {
       Node* next = node->next;
       node = next;
     }
   }
-
   free(cache->hash_table);
   free(cache);
 }

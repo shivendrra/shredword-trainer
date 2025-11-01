@@ -1,23 +1,33 @@
 import ctypes, os, sys, platform, sysconfig
 from ctypes import Structure, c_float, c_int, c_int32, c_uint64, c_size_t, c_char_p, POINTER, c_bool
-from typing import *
 
-def _get_lib_path():  
+def _get_lib_path():
   pkg_dir = os.path.dirname(__file__)
-  possible_names = ['trainer', 'libtrainer']
+  possible_names, candidates = ['trainer', 'libtrainer'], []
   possible_exts = ['.pyd', '.dll', '.so', '.dylib', sysconfig.get_config_var('EXT_SUFFIX') or '']
   search_dirs = [pkg_dir, os.path.join(pkg_dir, 'lib'), os.path.join(pkg_dir, '..', 'build')]
 
   for search_dir in search_dirs:
     if not os.path.exists(search_dir): continue
-    for root, dirs, files in os.walk(search_dir):
-      for file in files:
-        for name in possible_names:
-          if file.startswith(name) and any(file.endswith(ext) for ext in possible_exts if ext):
-            return os.path.join(root, file)
-  
-  raise FileNotFoundError(f"Could not find trainer library in {search_dirs}. Available files: {[f for d in search_dirs if os.path.exists(d) for f in os.listdir(d)]}")
-lib = ctypes.CDLL(_get_lib_path())
+    try:
+      for root, dirs, files in os.walk(search_dir):
+        for file in files:
+          for name in possible_names:
+            if file.startswith(name) and any(file.endswith(ext) for ext in possible_exts if ext): candidates.append(os.path.join(root, file))
+    except OSError: continue
+
+  if candidates: return os.path.abspath(candidates[0])
+  available = []
+  for d in search_dirs:
+    if os.path.exists(d):
+      try: available.extend(os.listdir(d))
+      except OSError: pass
+
+  raise FileNotFoundError(f"Could not find trainer library in {search_dirs}. Available files: {available}")
+
+_lib_path = _get_lib_path()
+if hasattr(ctypes, 'RTLD_GLOBAL'): lib = ctypes.CDLL(_lib_path, mode=ctypes.RTLD_GLOBAL)
+else: lib = ctypes.CDLL(_lib_path)
 
 MIN_HEAP_SIZE = 4096
 MAX_OCCS_PER_MERGE = 50000
@@ -33,13 +43,11 @@ class MaxHeap(Structure): pass
 class BIMap(Structure): pass
 class PairKey(Structure): pass
 
-# populating fields------------
 Symbol._fields_ = [("id", c_int32), ("prev", POINTER(Symbol)), ("next", POINTER(Symbol)), ("deleted", c_bool)]
 WordPos._fields_ = [("word_index", c_size_t), ("pos", POINTER(Symbol))]
 Corpus._fields_ = [("words", POINTER(POINTER(Symbol))), ("word_counts", POINTER(c_uint64)), ("vocab_size", c_size_t)]
 BPEConfig._fields_ = [("target_vocab_size", c_size_t), ("unk_id", c_int32), ("character_coverage", c_float), ("min_pair_freq", c_uint64)]
-Trainer._fields_ = [("config", BPEConfig), ("heap", MaxHeap), ("corpus", Corpus), ("bigram_map", BIMap), ("next_token", c_size_t), ("num_merges", c_size_t),
-                    ("merge_ops", POINTER(PairKey)), ("token_strs", POINTER(c_char_p)), ("token_freq", POINTER(c_uint64))]
+Trainer._fields_ = [("config", BPEConfig), ("heap", POINTER(MaxHeap)), ("corpus", POINTER(Corpus)), ("bigram_map", POINTER(BIMap)), ("next_token", c_size_t), ("num_merges", c_size_t), ("merge_ops", POINTER(PairKey)), ("token_strs", POINTER(c_char_p)), ("token_freq", POINTER(c_uint64))]
 
 lib.create_trainer.argtypes = [POINTER(BPEConfig)]
 lib.create_trainer.restype = POINTER(Trainer)

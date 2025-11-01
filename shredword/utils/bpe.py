@@ -148,7 +148,7 @@ class BaseTokenizer:
         idx += 1
     self.merges, self.special_tokens, self.vocab = merges, special_tokens, build_vocab(merges, special_tokens)
 
-class BPETrainer(BaseTokenizer):
+class BPETokenizer(BaseTokenizer):
   def __init__(self, pattern=None):
     super().__init__()
     # default GPT-4 pattern for pre-tokenization if none provided
