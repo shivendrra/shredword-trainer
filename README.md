@@ -2,6 +2,8 @@
 
 ShredWord is a byte-pair encoding (BPE) based tokenizer-trainer designed for fast, efficient, and flexible text processing & vocab training. It offers training, and text normalization functionalities and is backed by a C/C++ core with a Python interface for easy integration into machine learning workflows.
 
+Unigram code doesn't work, I lack intelligence capabilites for fixing it.
+
 ## Features
 
 1. **Efficient Tokenization**: Utilizes BPE for compressing text data and reducing the vocabulary size, making it well-suited for NLP tasks.
@@ -96,4 +98,4 @@ merges = [(101, 32, 256), (32, 116, 257)]
 tokenizer.merges = merges
 ```
 
-work in progress by Shivendra
+a project by Shivendra
