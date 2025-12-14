@@ -12,10 +12,7 @@
 UnigramTrainer* trainerCreate(int vs, float cc, int msl, int sss) {
   UnigramTrainer* trainer = (UnigramTrainer*)malloc(sizeof(UnigramTrainer));
   if (!trainer) return NULL;
-  trainer->vocab_size = vs;
-  trainer->character_coverage = cc;
-  trainer->max_len = msl;
-  trainer->seed_size = sss;
+  trainer->vocab_size = vs, trainer->character_coverage = cc, trainer->max_len = msl, trainer->seed_size = sss;
   trainer->vocab_heap = heapCreate();
   trainer->token_freqs = hashmapCreate(INITIAL_SIZE);
   trainer->subword_trie = trieCreate();
@@ -24,14 +21,9 @@ UnigramTrainer* trainerCreate(int vs, float cc, int msl, int sss) {
   trainer->loss_cache = cacheCreate(100000);
   trainer->vocab = hashmapCreate(INITIAL_SIZE);
   trainer->final_vocab = hashmapCreate(INITIAL_SIZE);
-  trainer->text_capacity = 16;
-  trainer->text_count = 0;
-  trainer->total_chars = 0;
+  trainer->text_capacity = 16, trainer->text_count = 0, trainer->total_chars = 0;
   trainer->texts = (char**)malloc(trainer->text_capacity * sizeof(char*));
-  if (!trainer->texts) {
-    free(trainer);
-    return NULL;
-  }
+  if (!trainer->texts) { free(trainer); return NULL; }
   for (int i = 0; i < trainer->text_capacity; i++) trainer->texts[i] = NULL;
   return trainer;
 }
@@ -60,8 +52,7 @@ bool addTextToTrainer(UnigramTrainer* trainer, const char* text) {
     char** new_texts = (char**)realloc(trainer->texts, new_capacity * sizeof(char*));
     if (!new_texts) return false;
     for (int i = trainer->text_capacity; i < new_capacity; i++) new_texts[i] = NULL;
-    trainer->texts = new_texts;
-    trainer->text_capacity = new_capacity;
+    trainer->texts = new_texts, trainer->text_capacity = new_capacity;
   }
   trainer->texts[trainer->text_count] = strdup(text);
   if (!trainer->texts[trainer->text_count]) return false;
@@ -71,35 +62,74 @@ bool addTextToTrainer(UnigramTrainer* trainer, const char* text) {
 
 bool preprocessTexts(UnigramTrainer* trainer) {
   if (!trainer || trainer->text_count == 0) return false;
+  printf("  Allocating memory for preprocessing...\n");
+  fflush(stdout);
   FastHashMap* char_counts = hashmapCreate(256);
+  if (!char_counts) { printf("  ERROR: Failed to create char_counts hashmap\n"); return false; }
   char** processed_texts = (char**)malloc(trainer->text_count * sizeof(char*));
-  int processed_count = 0;
+  if (!processed_texts) { printf("  ERROR: Failed to allocate processed_texts\n"); hashMapDestroy(char_counts); return false; }
+  int processed_count = 0, skipped = 0, failed_norm = 0;
   trainer->total_chars = 0;
-  for (int i = 0; i < trainer->text_count; i++) {
-    NormalizedText* nt = create_normalized_text(strlen(trainer->texts[i]) * 2);
-    if (!nt) continue;
-    if (normalize_text_fast(trainer->texts[i], nt) == 0) {
-      processed_texts[processed_count] = strdup(nt->data);
-      if (processed_texts[processed_count]) {
-        for (int j = 0; j < nt->length; j++) {
-          char key[2] = {nt->data[j], '\0'};
-          int* count = (int*)hashMapGet(char_counts, key);
-          if (count) {
-            (*count)++;
-          } else {
-            int* new_count = (int*)malloc(sizeof(int));
-            *new_count = 1;
-            char* key_copy = strdup(key);
-            if (!key_copy) { free(new_count); continue; }
-            hashMapSet(char_counts, key_copy, new_count);
-          }
-          trainer->total_chars++;
-        }
-        processed_count++;
-      }
+  printf("  Testing normalization on first text...\n");
+  fflush(stdout);
+  bool use_normalization = true;
+  if (trainer->texts[0] && strlen(trainer->texts[0]) > 0) {
+    NormalizedText* test_nt = create_normalized_text(1000);
+    if (!test_nt) { printf("  WARNING: Normalization unavailable, using raw text\n"); use_normalization = false; }
+    else {
+      char test_text[101];
+      strncpy(test_text, trainer->texts[0], 100);
+      test_text[100] = '\0';
+      if (normalize_text_fast(test_text, test_nt) != 0) { printf("  WARNING: Normalization failed, using raw text\n"); use_normalization = false; }
+      free_normalized_text(test_nt);
     }
-    free_normalized_text(nt);
   }
+  printf("  Processing %d texts (normalization: %s)...\n", trainer->text_count, use_normalization ? "enabled" : "disabled");
+  fflush(stdout);
+  for (int i = 0; i < trainer->text_count; i++) {
+    if (i % 1000 == 0) { printf("    Processed %d/%d texts (skipped %d)\r", i, trainer->text_count, skipped); fflush(stdout); }
+    if (!trainer->texts[i]) { skipped++; continue; }
+    int orig_len = strlen(trainer->texts[i]);
+    if (orig_len == 0 || orig_len > 50000) { skipped++; continue; }
+    char* final_text = NULL;
+    if (use_normalization) {
+      int text_len = orig_len < 10000 ? orig_len : 10000;
+      int buffer_size = text_len * 3 + 100;
+      NormalizedText* nt = create_normalized_text(buffer_size);
+      if (nt) {
+        char temp_text[10001];
+        memset(temp_text, 0, sizeof(temp_text));
+        strncpy(temp_text, trainer->texts[i], 10000);
+        temp_text[10000] = '\0';
+        if (normalize_text_fast(temp_text, nt) == 0 && nt->length > 0 && nt->data) {
+          final_text = strdup(nt->data);
+        } else { failed_norm++; }
+        free_normalized_text(nt);
+      } else { failed_norm++; }
+    }
+    if (!final_text) {
+      int copy_len = orig_len < 10000 ? orig_len : 10000;
+      final_text = (char*)malloc(copy_len + 1);
+      if (final_text) { strncpy(final_text, trainer->texts[i], copy_len); final_text[copy_len] = '\0'; }
+    }
+    if (final_text) {
+      processed_texts[processed_count] = final_text;
+      int text_len = strlen(final_text);
+      for (int j = 0; j < text_len; j++) {
+        char key[2] = {final_text[j], '\0'};
+        int* count = (int*)hashMapGet(char_counts, key);
+        if (count) { (*count)++; }
+        else {
+          int* new_count = (int*)malloc(sizeof(int));
+          if (new_count) { *new_count = 1; hashMapSet(char_counts, key, new_count); }
+        }
+        trainer->total_chars++;
+      }
+      processed_count++;
+    } else { skipped++; }
+  }
+  printf("\n  Processed %d texts successfully (skipped %d, normalization failed %d)\n", processed_count, skipped, failed_norm);
+  if (processed_count == 0) { printf("  ERROR: No texts were normalized successfully\n"); free(processed_texts); hashMapDestroy(char_counts); return false; }
   for (int i = 0; i < trainer->text_count; i++) {
     if (trainer->texts[i]) free(trainer->texts[i]);
   }
@@ -108,96 +138,117 @@ bool preprocessTexts(UnigramTrainer* trainer) {
   trainer->text_count = processed_count;
   trainer->text_capacity = processed_count > 0 ? processed_count : 1;
   HashMapIterator* iter = hashMapIteratorCreate(char_counts);
-  const char* k;
-  void* v;
-  while (hashMapIteratorNext(iter, &k, &v)) free(v);
-  hashMapIteratorDestroy(iter);
+  if (iter) {
+    const char* k; void* v;
+    while (hashMapIteratorNext(iter, &k, &v)) free(v);
+    hashMapIteratorDestroy(iter);
+  }
   hashMapDestroy(char_counts);
-  return true;
+  return processed_count > 0;
 }
 
 bool extractInitialSubwords(UnigramTrainer* trainer) {
   if (!trainer) return false;
-  FastHashMap* all_subwords = hashmapCreate(INITIAL_SIZE * 4);
-  FastHashMap* char_freq = hashmapCreate(256);
-  int text_limit = (trainer->text_count < 10000) ? trainer->text_count : 10000;
-  for (int i = 0; i < text_limit; i++) {
-    SubwordSet* subwords = extractSubwords(trainer->extractor, trainer->texts[i], trainer->max_len);
-    if (!subwords) continue;
-    for (int j = 0; j < subwords->count; j++) {
-      char* sdup = strdup(subwords->subwords[j]);
-      if (sdup) hashMapSet(all_subwords, sdup, (void*)1);
-    }
-    for (int k = 0; trainer->texts[i][k]; k++) {
-      char char_key[2] = {trainer->texts[i][k], '\0'};
-      int* count = (int*)hashMapGet(char_freq, char_key);
-      if (count) {
-        (*count)++;
-      } else {
+  int sample_limit = 1000;
+  if (trainer->text_count < sample_limit) sample_limit = trainer->text_count;
+  printf("  Sampling %d texts for initial vocabulary...\n", sample_limit);
+  FastHashMap* token_freq_map = hashmapCreate(INITIAL_SIZE);
+  if (!token_freq_map) { printf("  ERROR: Failed to create token_freq_map\n"); return false; }
+  printf("  Extracting character frequencies...\n");
+  for (int i = 0; i < trainer->text_count; i++) {
+    if (i % 1000 == 0) printf("    Processing text %d/%d\r", i, trainer->text_count);
+    const char* text = trainer->texts[i];
+    for (int j = 0; text[j]; j++) {
+      char char_key[2] = {text[j], '\0'};
+      int* count = (int*)hashMapGet(token_freq_map, char_key);
+      if (count) { (*count)++; }
+      else {
         int* new_count = (int*)malloc(sizeof(int));
-        *new_count = 1;
-        char* ck = strdup(char_key);
-        if (!ck) { free(new_count); continue; }
-        hashMapSet(char_freq, ck, new_count);
+        if (new_count) { *new_count = 1; hashMapSet(token_freq_map, char_key, new_count); }
       }
     }
-    subwordSetDestroy(subwords);
   }
-  HashMapIterator* char_iter = hashMapIteratorCreate(char_freq);
-  const char* char_key;
-  void* char_value;
-  while (hashMapIteratorNext(char_iter, &char_key, &char_value)) {
-    char* key_copy = strdup(char_key);
-    if (key_copy) hashMapSet(all_subwords, key_copy, (void*)1);
-  }
-  hashMapIteratorDestroy(char_iter);
-  for (int i = 0; i < trainer->text_count; i++) {
-    SubwordSet* text_subwords = extractSubwords(trainer->extractor, trainer->texts[i], trainer->max_len);
-    if (!text_subwords) continue;
-    for (int j = 0; j < text_subwords->count; j++) {
-      if (hashMapContains(all_subwords, text_subwords->subwords[j])) {
-        int* count = (int*)hashMapGet(trainer->token_freqs, text_subwords->subwords[j]);
-        if (count) {
-          (*count)++;
-        } else {
+  printf("\n  Extracted %d unique characters\n", hashMapSize(token_freq_map));
+  printf("  Extracting subword candidates from sample...\n");
+  int subword_count = 0, max_subwords = trainer->seed_size;
+  for (int i = 0; i < sample_limit && subword_count < max_subwords; i++) {
+    if (i % 100 == 0) printf("    Sampling text %d/%d (found %d subwords)\r", i, sample_limit, subword_count);
+    const char* text = trainer->texts[i];
+    int text_len = strlen(text);
+    if (text_len > 500) text_len = 500;
+    for (int start = 0; start < text_len && subword_count < max_subwords; start++) {
+      int max_end = start + trainer->max_len + 1;
+      if (max_end > text_len + 1) max_end = text_len + 1;
+      for (int end = start + 2; end < max_end; end++) {
+        int token_len = end - start;
+        if (token_len >= MAX_TOKEN_LEN) continue;
+        char token[MAX_TOKEN_LEN];
+        memcpy(token, text + start, token_len);
+        token[token_len] = '\0';
+        if (!hashMapContains(token_freq_map, token)) {
           int* new_count = (int*)malloc(sizeof(int));
-          if (!new_count) continue;
-          *new_count = 1;
-          char* token_copy = strdup(text_subwords->subwords[j]);
-          if (!token_copy) { free(new_count); continue; }
-          hashMapSet(trainer->token_freqs, token_copy, new_count);
+          if (new_count) { *new_count = 1; hashMapSet(token_freq_map, token, new_count); subword_count++; }
         }
       }
     }
-    subwordSetDestroy(text_subwords);
   }
-  HashMapIterator* freq_iter = hashMapIteratorCreate(trainer->token_freqs);
-  const char* token;
-  void* freq_value;
-  while (hashMapIteratorNext(freq_iter, &token, &freq_value)) {
-    int freq = *(int*)freq_value;
-    if (freq > 1 && heapSize(trainer->vocab_heap) < trainer->seed_size) {
-      char* token_copy = strdup(token);
-      if (token_copy) {
-        heapPush(trainer->vocab_heap, token_copy, freq);
-        double* log_freq = (double*)malloc(sizeof(double));
-        if (!log_freq) { free(token_copy); continue; }
-        *log_freq = log((double)freq);
-        hashMapSet(trainer->vocab, token_copy, log_freq);
-        trieInsert(trainer->subword_trie, token_copy, freq);
+  printf("\n  Collected %d candidate subwords\n", hashMapSize(token_freq_map));
+  printf("  Counting frequencies in full dataset...\n");
+  HashMapIterator* candidate_iter = hashMapIteratorCreate(token_freq_map);
+  if (candidate_iter) {
+    const char* token; void* dummy;
+    while (hashMapIteratorNext(candidate_iter, &token, &dummy)) {
+      int* freq_ptr = (int*)dummy;
+      *freq_ptr = 0;
+    }
+    hashMapIteratorDestroy(candidate_iter);
+  }
+  for (int i = 0; i < trainer->text_count; i++) {
+    if (i % 1000 == 0) printf("    Counting in text %d/%d\r", i, trainer->text_count);
+    const char* text = trainer->texts[i];
+    int text_len = strlen(text);
+    for (int start = 0; start < text_len; start++) {
+      int max_end = start + trainer->max_len + 1;
+      if (max_end > text_len + 1) max_end = text_len + 1;
+      for (int end = start + 1; end < max_end; end++) {
+        int token_len = end - start;
+        if (token_len >= MAX_TOKEN_LEN) continue;
+        char token[MAX_TOKEN_LEN];
+        memcpy(token, text + start, token_len);
+        token[token_len] = '\0';
+        int* count = (int*)hashMapGet(token_freq_map, token);
+        if (count) (*count)++;
       }
     }
   }
-  hashMapIteratorDestroy(freq_iter);
-  HashMapIterator* all_iter = hashMapIteratorCreate(all_subwords);
-  while (hashMapIteratorNext(all_iter, &token, &freq_value)) free((void*)token);
-  hashMapIteratorDestroy(all_iter);
-  hashMapDestroy(all_subwords);
-  HashMapIterator* cf_iter = hashMapIteratorCreate(char_freq);
-  while (hashMapIteratorNext(cf_iter, &token, &freq_value)) free(freq_value);
-  hashMapIteratorDestroy(cf_iter);
-  hashMapDestroy(char_freq);
-  return true;
+  printf("\n  Building initial vocabulary...\n");
+  int added = 0;
+  HashMapIterator* freq_iter = hashMapIteratorCreate(token_freq_map);
+  if (freq_iter) {
+    const char* token; void* freq_value;
+    while (hashMapIteratorNext(freq_iter, &token, &freq_value)) {
+      int freq = *(int*)freq_value;
+      if (freq > MIN_TOKEN_FREQ && added < trainer->seed_size) {
+        heapPush(trainer->vocab_heap, token, freq);
+        double* log_freq = (double*)malloc(sizeof(double));
+        if (log_freq) { *log_freq = log((double)freq); hashMapSet(trainer->vocab, token, log_freq); }
+        trieInsert(trainer->subword_trie, token, freq);
+        int* freq_copy = (int*)malloc(sizeof(int));
+        if (freq_copy) { *freq_copy = freq; hashMapSet(trainer->token_freqs, token, freq_copy); }
+        added++;
+      }
+    }
+    hashMapIteratorDestroy(freq_iter);
+  }
+  printf("  Added %d tokens to initial vocabulary\n", added);
+  HashMapIterator* cleanup_iter = hashMapIteratorCreate(token_freq_map);
+  if (cleanup_iter) {
+    const char* token; void* freq_value;
+    while (hashMapIteratorNext(cleanup_iter, &token, &freq_value)) free(freq_value);
+    hashMapIteratorDestroy(cleanup_iter);
+  }
+  hashMapDestroy(token_freq_map);
+  return added > 0;
 }
 
 float computeLoss(UnigramTrainer* trainer, const char** texts, int text_count) {
@@ -207,7 +258,7 @@ float computeLoss(UnigramTrainer* trainer, const char** texts, int text_count) {
   for (int i = 0; i < text_count; i++) {
     if (!texts[i]) continue;
     uint64_t cache_key = stringHash64(texts[i]);
-    int cached_loss = cacheGet(trainer->loss_cache, cache_key);
+    int cached_loss = cacheGet(trainer->loss_cache, (int)(cache_key % INT32_MAX));
     if (cached_loss != -1) {
       total_loss += (double)cached_loss / MAX_TEXTS_FOR_TOKEN_LOSS;
       total_len += (int)strlen(texts[i]);
@@ -221,7 +272,7 @@ float computeLoss(UnigramTrainer* trainer, const char** texts, int text_count) {
       double score = token_score ? *token_score : -UNKNOWN_TOKEN_SCORE;
       text_loss -= score;
     }
-    cachePut(trainer->loss_cache, cache_key, (int)(text_loss * MAX_TEXTS_FOR_TOKEN_LOSS));
+    cachePut(trainer->loss_cache, (int)(cache_key % INT32_MAX), (int)(text_loss * MAX_TEXTS_FOR_TOKEN_LOSS));
     total_loss += text_loss;
     total_len += (int)strlen(texts[i]);
     tokenListDestroy(segmentation);
@@ -234,22 +285,25 @@ double computeTokenLoss(UnigramTrainer* trainer, const char* token, const char**
   FastHashMap* temp_vocab = hashmapCreate(hashMapSize(trainer->vocab));
   if (!temp_vocab) return 0.0;
   HashMapIterator* iter = hashMapIteratorCreate(trainer->vocab);
-  const char* key;
-  void* value;
-  while (hashMapIteratorNext(iter, &key, &value)) {
-    if (strcmp(key, token) != 0) {
-      double* original_score = (double*)value;
-      double* new_score = (double*)malloc(sizeof(double));
-      *new_score = *original_score;
-      hashMapSet(temp_vocab, strdup(key), new_score);
+  if (iter) {
+    const char* key; void* value;
+    while (hashMapIteratorNext(iter, &key, &value)) {
+      if (strcmp(key, token) != 0) {
+        double* original_score = (double*)value;
+        double* new_score = (double*)malloc(sizeof(double));
+        if (new_score) { *new_score = *original_score; hashMapSet(temp_vocab, key, new_score); }
+      }
     }
+    hashMapIteratorDestroy(iter);
   }
-  hashMapIteratorDestroy(iter);
   ViterbiDecoder* temp_decoder = viterbiDecoderCreate();
   if (!temp_decoder) {
     HashMapIterator* titer = hashMapIteratorCreate(temp_vocab);
-    while (hashMapIteratorNext(titer, &key, &value)) free((void*)key);
-    hashMapIteratorDestroy(titer);
+    if (titer) {
+      const char* key; void* value;
+      while (hashMapIteratorNext(titer, &key, &value)) free(value);
+      hashMapIteratorDestroy(titer);
+    }
     hashMapDestroy(temp_vocab);
     return 0.0;
   }
@@ -267,8 +321,11 @@ double computeTokenLoss(UnigramTrainer* trainer, const char* token, const char**
   }
   viterbiDecoderDestroy(temp_decoder);
   HashMapIterator* titer = hashMapIteratorCreate(temp_vocab);
-  while (hashMapIteratorNext(titer, &key, &value)) free(value);
-  hashMapIteratorDestroy(titer);
+  if (titer) {
+    const char* key; void* value;
+    while (hashMapIteratorNext(titer, &key, &value)) free(value);
+    hashMapIteratorDestroy(titer);
+  }
   hashMapDestroy(temp_vocab);
   return total_loss;
 }
@@ -285,45 +342,48 @@ void shuffleVocabItems(char** tokens, double** scores, int count) {
   srand((unsigned int)time(NULL));
   for (int i = count - 1; i > 0; i--) {
     int j = rand() % (i + 1);
-    char* temp_token = tokens[i];
-    double* temp_score = scores[i];
-    tokens[i] = tokens[j];
-    scores[i] = scores[j];
-    tokens[j] = temp_token;
-    scores[j] = temp_score;
+    char* temp_token = tokens[i]; double* temp_score = scores[i];
+    tokens[i] = tokens[j], scores[i] = scores[j];
+    tokens[j] = temp_token, scores[j] = temp_score;
   }
 }
 
 bool pruneVocabStep(UnigramTrainer* trainer, const char** texts, int text_count, double reduction_ratio) {
   if (!trainer || hashMapSize(trainer->vocab) <= trainer->vocab_size) return true;
+  printf("  Pruning vocabulary...\n");
   int current_size = hashMapSize(trainer->vocab);
   int target_size = (int)(current_size * reduction_ratio);
   if (target_size < trainer->vocab_size) target_size = trainer->vocab_size;
   int tokens_to_remove = current_size - target_size;
+  if (tokens_to_remove <= 0) return true;
   char** vocab_tokens = (char**)malloc(current_size * sizeof(char*));
   double** vocab_scores = (double**)malloc(current_size * sizeof(double*));
-  if (!vocab_tokens || !vocab_scores) return false;
-  HashMapIterator* iter = hashMapIteratorCreate(trainer->vocab);
-  const char* key;
-  void* value;
-  int vocab_count = 0;
-  while (hashMapIteratorNext(iter, &key, &value)) {
-    vocab_tokens[vocab_count] = strdup(key);
-    vocab_scores[vocab_count] = (double*)value;
-    vocab_count++;
+  if (!vocab_tokens || !vocab_scores) {
+    if (vocab_tokens) free(vocab_tokens);
+    if (vocab_scores) free(vocab_scores);
+    return false;
   }
-  hashMapIteratorDestroy(iter);
+  HashMapIterator* iter = hashMapIteratorCreate(trainer->vocab);
+  int vocab_count = 0;
+  if (iter) {
+    const char* key; void* value;
+    while (hashMapIteratorNext(iter, &key, &value) && vocab_count < current_size) {
+      vocab_tokens[vocab_count] = strdup(key);
+      vocab_scores[vocab_count] = (double*)value;
+      vocab_count++;
+    }
+    hashMapIteratorDestroy(iter);
+  }
   shuffleVocabItems(vocab_tokens, vocab_scores, vocab_count);
-  int candidates_limit = (vocab_count < tokens_to_remove * 3) ? vocab_count : tokens_to_remove * 3;
+  int candidates_limit = (vocab_count < tokens_to_remove * 2) ? vocab_count : tokens_to_remove * 2;
   RemovalCandidate* candidates = (RemovalCandidate*)malloc(candidates_limit * sizeof(RemovalCandidate));
   if (!candidates) {
     for (int i = 0; i < vocab_count; i++) free(vocab_tokens[i]);
-    free(vocab_tokens);
-    free(vocab_scores);
+    free(vocab_tokens); free(vocab_scores);
     return false;
   }
   int candidate_count = 0;
-  int text_limit = (text_count < 1000) ? text_count : 1000;
+  int text_limit = (text_count < 500) ? text_count : 500;
   for (int i = 0; i < candidates_limit && candidate_count < candidates_limit; i++) {
     if (strlen(vocab_tokens[i]) == 1) continue;
     double loss_increase = computeTokenLoss(trainer, vocab_tokens[i], texts, text_limit);
@@ -342,8 +402,7 @@ bool pruneVocabStep(UnigramTrainer* trainer, const char** texts, int text_count,
     }
   }
   for (int i = 0; i < vocab_count; i++) free(vocab_tokens[i]);
-  free(vocab_tokens);
-  free(vocab_scores);
+  free(vocab_tokens); free(vocab_scores);
   for (int i = 0; i < candidate_count; i++) free(candidates[i].token);
   free(candidates);
   return true;
@@ -353,7 +412,7 @@ bool updateTokenScores(UnigramTrainer* trainer, const char** texts, int text_cou
   if (!trainer || !texts || text_count <= 0) return false;
   FastHashMap* token_context_freq = hashmapCreate(hashMapSize(trainer->vocab));
   if (!token_context_freq) return false;
-  int text_limit = (text_count < 5000) ? text_count : 5000;
+  int text_limit = (text_count < 3000) ? text_count : 3000;
   for (int i = 0; i < text_limit; i++) {
     if (!texts[i]) continue;
     TokenList* segmentation = viterbiDecode(trainer->decoder, texts[i], trainer->vocab);
@@ -364,8 +423,7 @@ bool updateTokenScores(UnigramTrainer* trainer, const char** texts, int text_cou
         if (count) { (*count)++; }
         else {
           int* new_count = (int*)malloc(sizeof(int));
-          *new_count = 1;
-          hashMapSet(token_context_freq, strdup(segmentation->tokens[j]), new_count);
+          if (new_count) { *new_count = 1; hashMapSet(token_context_freq, segmentation->tokens[j], new_count); }
         }
       }
     }
@@ -373,34 +431,35 @@ bool updateTokenScores(UnigramTrainer* trainer, const char** texts, int text_cou
   }
   int total_freq = 0;
   HashMapIterator* freq_iter = hashMapIteratorCreate(token_context_freq);
-  const char* key;
-  void* value;
-  while (hashMapIteratorNext(freq_iter, &key, &value)) total_freq += *(int*)value;
-  hashMapIteratorDestroy(freq_iter);
-  if (total_freq == 0) {
-    HashMapIterator* titer = hashMapIteratorCreate(token_context_freq);
-    while (hashMapIteratorNext(titer, &key, &value)) free((void*)key);
-    hashMapIteratorDestroy(titer);
-    hashMapDestroy(token_context_freq);
-    return true;
+  if (freq_iter) {
+    const char* key; void* value;
+    while (hashMapIteratorNext(freq_iter, &key, &value)) total_freq += *(int*)value;
+    hashMapIteratorDestroy(freq_iter);
   }
+  if (total_freq == 0) total_freq = 1;
   HashMapIterator* vocab_iter = hashMapIteratorCreate(trainer->vocab);
-  while (hashMapIteratorNext(vocab_iter, &key, &value)) {
-    int* freq_ptr = (int*)hashMapGet(token_context_freq, key);
-    int freq = freq_ptr ? *freq_ptr : 1;
-    double new_score = log((double)freq) + log((double)total_freq);
-    double* score_ptr = (double*)value;
-    *score_ptr = new_score;
-    if (hashMapContains(trainer->token_freqs, key)) {
-      heapUpdateFreq(trainer->vocab_heap, key, freq);
-      int* token_freq = (int*)hashMapGet(trainer->token_freqs, key);
-      if (token_freq) *token_freq = freq;
+  if (vocab_iter) {
+    const char* key; void* value;
+    while (hashMapIteratorNext(vocab_iter, &key, &value)) {
+      int* freq_ptr = (int*)hashMapGet(token_context_freq, key);
+      int freq = freq_ptr ? *freq_ptr : 1;
+      double new_score = log((double)freq) - log((double)total_freq);
+      double* score_ptr = (double*)value;
+      *score_ptr = new_score;
+      if (hashMapContains(trainer->token_freqs, key)) {
+        heapUpdateFreq(trainer->vocab_heap, key, freq);
+        int* token_freq = (int*)hashMapGet(trainer->token_freqs, key);
+        if (token_freq) *token_freq = freq;
+      }
     }
+    hashMapIteratorDestroy(vocab_iter);
   }
-  hashMapIteratorDestroy(vocab_iter);
   HashMapIterator* titer = hashMapIteratorCreate(token_context_freq);
-  while (hashMapIteratorNext(titer, &key, &value)) free(value);
-  hashMapIteratorDestroy(titer);
+  if (titer) {
+    const char* key; void* value;
+    while (hashMapIteratorNext(titer, &key, &value)) free(value);
+    hashMapIteratorDestroy(titer);
+  }
   hashMapDestroy(token_context_freq);
   return true;
 }
@@ -415,16 +474,12 @@ int compareTokenScores(const void* a, const void* b) {
 
 bool trainUnigram(UnigramTrainer* trainer, const char** texts, int text_count, int num_iterations) {
   if (!trainer || !texts || text_count <= 0) return false;
-
   if (trainer->text_count == 0) {
     if (trainer->texts) {
       for (int i = 0; i < trainer->text_capacity; i++) {
         if (trainer->texts[i]) { free(trainer->texts[i]); trainer->texts[i] = NULL; }
       }
       free(trainer->texts);
-      trainer->texts = NULL;
-      trainer->text_capacity = 0;
-      trainer->text_count = 0;
     }
     trainer->text_capacity = text_count > 16 ? text_count : 16;
     trainer->texts = (char**)malloc(trainer->text_capacity * sizeof(char*));
@@ -436,65 +491,57 @@ bool trainUnigram(UnigramTrainer* trainer, const char** texts, int text_count, i
         for (int j = 0; j < i; j++) free(trainer->texts[j]);
         free(trainer->texts);
         trainer->texts = NULL;
-        trainer->text_capacity = 0;
-        trainer->text_count = 0;
         return false;
       }
     }
     trainer->text_count = text_count;
   }
-
   printf("Preprocessing %d texts...\n", trainer->text_count);
-  if (!preprocessTexts(trainer)) {
-    printf("Fault in preprocessTexts\n");
-    return false;
-  }
-
-  int train_text_limit = (trainer->text_count < 50000) ? trainer->text_count : 50000;
+  if (!preprocessTexts(trainer)) { printf("Failed in preprocessTexts\n"); return false; }
+  int train_text_limit = (trainer->text_count < 10000) ? trainer->text_count : 10000;
   trainer->text_count = train_text_limit;
-  printf("Initializing seed vocabulary...\n");
-  if (!extractInitialSubwords(trainer)) return false;
+  printf("Initializing seed vocabulary (using %d texts)...\n", trainer->text_count);
+  if (!extractInitialSubwords(trainer)) { printf("Failed in extractInitialSubwords\n"); return false; }
   printf("Initial vocabulary size: %d\n", hashMapSize(trainer->vocab));
   double prev_loss = DBL_MAX;
   for (int iteration = 0; iteration < num_iterations; iteration++) {
-    printf("Iteration %d/%d\n", iteration + 1, num_iterations);
-    int loss_text_limit = (trainer->text_count < 2000) ? trainer->text_count : 2000;
-    const char** loss_texts = (const char**)trainer->texts;
-    double current_loss = computeLoss(trainer, loss_texts, loss_text_limit);
+    printf("\nIteration %d/%d\n", iteration + 1, num_iterations);
+    int loss_text_limit = (trainer->text_count < 1000) ? trainer->text_count : 1000;
+    double current_loss = computeLoss(trainer, (const char**)trainer->texts, loss_text_limit);
     printf("  Current loss: %.4f\n", current_loss);
-    if (fabs(prev_loss - current_loss) < 0.001) {
-      printf("  Convergence reached\n");
-      break;
-    }
+    if (fabs(prev_loss - current_loss) < CONVERGENCE_THRESHOLD) { printf("  Convergence reached\n"); break; }
     prev_loss = current_loss;
-    const char** update_texts = (const char**)trainer->texts;
-    updateTokenScores(trainer, update_texts, trainer->text_count);
+    updateTokenScores(trainer, (const char**)trainer->texts, trainer->text_count);
     printf("  Updated token scores\n");
     if (hashMapSize(trainer->vocab) > trainer->vocab_size) {
-      const char** prune_texts = (const char**)trainer->texts;
-      pruneVocabStep(trainer, prune_texts, trainer->text_count, 0.8);
+      pruneVocabStep(trainer, (const char**)trainer->texts, trainer->text_count, DEFAULT_REDUCTION_RATIO);
       printf("  Pruned vocabulary to %d tokens\n", hashMapSize(trainer->vocab));
     }
     cacheFree(trainer->loss_cache);
     trainer->loss_cache = cacheCreate(100000);
   }
+  printf("\nFinalizing vocabulary...\n");
   FastHashMap* char_tokens = hashmapCreate(256);
   FastHashMap* other_tokens = hashmapCreate(hashMapSize(trainer->vocab));
-  HashMapIterator* iter = hashMapIteratorCreate(trainer->vocab);
-  const char* key;
-  void* value;
-  while (hashMapIteratorNext(iter, &key, &value)) {
-    if (strlen(key) == 1) {
-      double* score = (double*)malloc(sizeof(double));
-      *score = *(double*)value;
-      hashMapSet(char_tokens, strdup(key), score);
-    } else {
-      double* score = (double*)malloc(sizeof(double));
-      *score = *(double*)value;
-      hashMapSet(other_tokens, strdup(key), score);
-    }
+  if (!char_tokens || !other_tokens) {
+    if (char_tokens) hashMapDestroy(char_tokens);
+    if (other_tokens) hashMapDestroy(other_tokens);
+    return false;
   }
-  hashMapIteratorDestroy(iter);
+  HashMapIterator* iter = hashMapIteratorCreate(trainer->vocab);
+  if (iter) {
+    const char* key; void* value;
+    while (hashMapIteratorNext(iter, &key, &value)) {
+      if (strlen(key) == 1) {
+        double* score = (double*)malloc(sizeof(double));
+        if (score) { *score = *(double*)value; hashMapSet(char_tokens, key, score); }
+      } else {
+        double* score = (double*)malloc(sizeof(double));
+        if (score) { *score = *(double*)value; hashMapSet(other_tokens, key, score); }
+      }
+    }
+    hashMapIteratorDestroy(iter);
+  }
   int other_count = hashMapSize(other_tokens);
   TokenScore* sorted_tokens = (TokenScore*)malloc(other_count * sizeof(TokenScore));
   if (!sorted_tokens) {
@@ -504,12 +551,15 @@ bool trainUnigram(UnigramTrainer* trainer, const char** texts, int text_count, i
   }
   HashMapIterator* other_iter = hashMapIteratorCreate(other_tokens);
   int idx = 0;
-  while (hashMapIteratorNext(other_iter, &key, &value)) {
-    sorted_tokens[idx].token = strdup(key);
-    sorted_tokens[idx].score = *(double*)value;
-    idx++;
+  if (other_iter) {
+    const char* key; void* value;
+    while (hashMapIteratorNext(other_iter, &key, &value) && idx < other_count) {
+      sorted_tokens[idx].token = strdup(key);
+      sorted_tokens[idx].score = *(double*)value;
+      idx++;
+    }
+    hashMapIteratorDestroy(other_iter);
   }
-  hashMapIteratorDestroy(other_iter);
   qsort(sorted_tokens, other_count, sizeof(TokenScore), compareTokenScores);
   hashMapClear(trainer->final_vocab);
   int char_count = hashMapSize(char_tokens);
@@ -517,25 +567,32 @@ bool trainUnigram(UnigramTrainer* trainer, const char** texts, int text_count, i
   if (final_other_limit > other_count) final_other_limit = other_count;
   for (int i = 0; i < final_other_limit; i++) {
     double* score = (double*)malloc(sizeof(double));
-    *score = sorted_tokens[i].score;
-    hashMapSet(trainer->final_vocab, strdup(sorted_tokens[i].token), score);
+    if (score) { *score = sorted_tokens[i].score; hashMapSet(trainer->final_vocab, sorted_tokens[i].token, score); }
   }
   HashMapIterator* char_iter = hashMapIteratorCreate(char_tokens);
-  while (hashMapIteratorNext(char_iter, &key, &value)) {
-    double* score = (double*)malloc(sizeof(double));
-    *score = *(double*)value;
-    hashMapSet(trainer->final_vocab, strdup(key), score);
+  if (char_iter) {
+    const char* key; void* value;
+    while (hashMapIteratorNext(char_iter, &key, &value)) {
+      double* score = (double*)malloc(sizeof(double));
+      if (score) { *score = *(double*)value; hashMapSet(trainer->final_vocab, key, score); }
+    }
+    hashMapIteratorDestroy(char_iter);
   }
-  hashMapIteratorDestroy(char_iter);
   printf("Training completed. Final vocabulary size: %d\n", hashMapSize(trainer->final_vocab));
   for (int i = 0; i < other_count; i++) free(sorted_tokens[i].token);
   free(sorted_tokens);
   HashMapIterator* ct = hashMapIteratorCreate(char_tokens);
-  while (hashMapIteratorNext(ct, &key, &value)) free(value);
-  hashMapIteratorDestroy(ct);
+  if (ct) {
+    const char* key; void* value;
+    while (hashMapIteratorNext(ct, &key, &value)) free(value);
+    hashMapIteratorDestroy(ct);
+  }
   HashMapIterator* ot = hashMapIteratorCreate(other_tokens);
-  while (hashMapIteratorNext(ot, &key, &value)) free(value);
-  hashMapIteratorDestroy(ot);
+  if (ot) {
+    const char* key; void* value;
+    while (hashMapIteratorNext(ot, &key, &value)) free(value);
+    hashMapIteratorDestroy(ot);
+  }
   hashMapDestroy(char_tokens);
   hashMapDestroy(other_tokens);
   return true;
@@ -549,15 +606,16 @@ bool getVocab(UnigramTrainer* trainer, char*** tokens, double** scores, int* cou
   *scores = (double*)malloc(*count * sizeof(double));
   if (!*tokens || !*scores) return false;
   HashMapIterator* iter = hashMapIteratorCreate(trainer->final_vocab);
-  const char* key;
-  void* value;
   int idx = 0;
-  while (hashMapIteratorNext(iter, &key, &value) && idx < *count) {
-    (*tokens)[idx] = strdup(key);
-    (*scores)[idx] = *(double*)value;
-    idx++;
+  if (iter) {
+    const char* key; void* value;
+    while (hashMapIteratorNext(iter, &key, &value) && idx < *count) {
+      (*tokens)[idx] = strdup(key);
+      (*scores)[idx] = *(double*)value;
+      idx++;
+    }
+    hashMapIteratorDestroy(iter);
   }
-  hashMapIteratorDestroy(iter);
   return true;
 }
 
@@ -567,20 +625,18 @@ bool saveVocab(UnigramTrainer* trainer, const char* filepath) {
   if (!file) return false;
   int count = hashMapSize(trainer->final_vocab);
   TokenScore* sorted_vocab = (TokenScore*)malloc(count * sizeof(TokenScore));
-  if (!sorted_vocab) {
-    fclose(file);
-    return false;
-  }
+  if (!sorted_vocab) { fclose(file); return false; }
   HashMapIterator* iter = hashMapIteratorCreate(trainer->final_vocab);
-  const char* key;
-  void* value;
   int idx = 0;
-  while (hashMapIteratorNext(iter, &key, &value) && idx < count) {
-    sorted_vocab[idx].token = strdup(key);
-    sorted_vocab[idx].score = *(double*)value;
-    idx++;
+  if (iter) {
+    const char* key; void* value;
+    while (hashMapIteratorNext(iter, &key, &value) && idx < count) {
+      sorted_vocab[idx].token = strdup(key);
+      sorted_vocab[idx].score = *(double*)value;
+      idx++;
+    }
+    hashMapIteratorDestroy(iter);
   }
-  hashMapIteratorDestroy(iter);
   qsort(sorted_vocab, count, sizeof(TokenScore), compareTokenScores);
   for (int i = 0; i < count; i++) {
     fprintf(file, "%s\t%.6f\n", sorted_vocab[i].token, sorted_vocab[i].score);
@@ -601,15 +657,11 @@ bool loadVocab(UnigramTrainer* trainer, const char* filepath) {
     char* tab_pos = strchr(line, '\t');
     if (!tab_pos) continue;
     *tab_pos = '\0';
-    char* token = line;
     char* score_str = tab_pos + 1;
     char* newline = strchr(score_str, '\n');
     if (newline) *newline = '\0';
-    double score = atof(score_str);
     double* score_ptr = (double*)malloc(sizeof(double));
-    if (!score_ptr) continue;
-    *score_ptr = score;
-    hashMapSet(trainer->final_vocab, strdup(token), score_ptr);
+    if (score_ptr) { *score_ptr = atof(score_str); hashMapSet(trainer->final_vocab, line, score_ptr); }
   }
   fclose(file);
   return true;
