@@ -5,6 +5,11 @@
 #include "hashmap.h"
 #include "../inc/hash.h"
 
+static inline uint32_t hashIndex(const char* key, int size) {
+  uint32_t h = murmur3_hash(key, strlen(key));
+  return h % size;
+}
+
 FastHashMap* hashmapCreate(int initial_size) {
   if (initial_size <= 0) initial_size = INITIAL_SIZE;
 
@@ -20,7 +25,7 @@ HashEntry* createEntry(const char* key, void* value) {
   if (!key || strlen(key) >= MAX_KEY_LEN) return NULL;
   HashEntry* entry = (HashEntry*)malloc(sizeof(HashEntry));
   if (!entry) return NULL;
-  entry->key = strdup(key);  
+  entry->key = strdup(key);
   entry->value = value;
   entry->next = NULL;
   return entry;
@@ -37,7 +42,8 @@ bool hashMapResize(FastHashMap* map) {
   if (!map) return false;
 
   HashEntry** old_buckets = map->buckets;
-  int old_size = map->size;  
+  int old_size = map->size;
+
   map->size *= 2;
   map->buckets = (HashEntry**)calloc(map->size, sizeof(HashEntry*));
   if (!map->buckets) {
@@ -46,16 +52,15 @@ bool hashMapResize(FastHashMap* map) {
     return false;
   }
 
-  int old_count = map->count;
   map->count = 0;
+
   for (int i = 0; i < old_size; i++) {
     HashEntry* entry = old_buckets[i];
     while (entry) {
       HashEntry* next = entry->next;
-      uint32_t new_idx = murmur3_hash(entry->key, map->size);
-
-      entry->next = map->buckets[new_idx];
-      map->buckets[new_idx] = entry;
+      uint32_t idx = hashIndex(entry->key, map->size);
+      entry->next = map->buckets[idx];
+      map->buckets[idx] = entry;
       map->count++;
       entry = next;
     }
@@ -68,12 +73,17 @@ bool hashMapResize(FastHashMap* map) {
 bool hashMapSet(FastHashMap* map, const char* key, void* value) {
   if (!map || !key) return false;
 
-  if (map->count >= map->size * LOAD_FACTOR_THRESHOLD) { if (!hashMapResize(map)) return false; }
-  uint32_t idx = murmur3_hash(key, map->size);
+  if (map->count >= map->size * LOAD_FACTOR_THRESHOLD) {
+    if (!hashMapResize(map)) return false;
+  }
+
+  uint32_t idx = hashIndex(key, map->size);
   HashEntry* entry = map->buckets[idx];
+
   while (entry) {
     if (strcmp(entry->key, key) == 0) {
-      if (map->value_destructor && entry->value) map->value_destructor(entry->value);
+      if (map->value_destructor && entry->value)
+        map->value_destructor(entry->value);
       entry->value = value;
       return true;
     }
@@ -81,7 +91,8 @@ bool hashMapSet(FastHashMap* map, const char* key, void* value) {
   }
 
   HashEntry* new_entry = createEntry(key, value);
-  if (!new_entry) return false;  
+  if (!new_entry) return false;
+
   new_entry->next = map->buckets[idx];
   map->buckets[idx] = new_entry;
   map->count++;
@@ -91,8 +102,9 @@ bool hashMapSet(FastHashMap* map, const char* key, void* value) {
 void* hashMapGet(FastHashMap* map, const char* key) {
   if (!map || !key) return NULL;
 
-  uint32_t idx = murmur3_hash(key, map->size);
-  HashEntry* entry = map->buckets[idx];  
+  uint32_t idx = hashIndex(key, map->size);
+  HashEntry* entry = map->buckets[idx];
+
   while (entry) {
     if (strcmp(entry->key, key) == 0) return entry->value;
     entry = entry->next;
@@ -100,16 +112,13 @@ void* hashMapGet(FastHashMap* map, const char* key) {
   return NULL;
 }
 
-void* hashMapGetDefault(FastHashMap* map, const char* key, void* default_value) {
-  void* result = hashMapGet(map, key);
-  return result ? result : default_value;
-}
-
 bool hashMapRemove(FastHashMap* map, const char* key) {
   if (!map || !key) return false;
-  uint32_t idx = murmur3_hash(key, map->size);
+
+  uint32_t idx = hashIndex(key, map->size);
   HashEntry* entry = map->buckets[idx];
   HashEntry* prev = NULL;
+
   while (entry) {
     if (strcmp(entry->key, key) == 0) {
       if (prev) prev->next = entry->next;
@@ -121,48 +130,21 @@ bool hashMapRemove(FastHashMap* map, const char* key) {
     prev = entry;
     entry = entry->next;
   }
-  
+
   return false;
 }
 
-void hashMapSetDestructor(FastHashMap* map, void (*destructor)(void*)) { if (map) map->value_destructor = destructor; }
-bool hashMapContains(FastHashMap* map, const char* key) { return hashMapGet(map, key) != NULL; }
-int hashMapSize(FastHashMap* map) { return map ? map->count : 0; }
-bool hashMapEmpty(FastHashMap* map) { return !map || map->count == 0; }
-void print_int_value(const char* key, void* value) { printf("  %s: %d\n", key, *(int*)value); }  // helper
-void hashMapIteratorDestroy(HashMapIterator* iter) { free(iter); }
-
-HashMapIterator* hashMapIteratorCreate(FastHashMap* map) {
-  if (!map) return NULL;
-
-  HashMapIterator* iter = (HashMapIterator*)malloc(sizeof(HashMapIterator));
-  iter->map = map;
-  iter->bucket_idx = 0;
-  iter->current_entry = NULL;
-  while (iter->bucket_idx < map->size && !map->buckets[iter->bucket_idx]) iter->bucket_idx++;
-  if (iter->bucket_idx < map->size) iter->current_entry = map->buckets[iter->bucket_idx];
-  return iter;
+bool hashMapContains(FastHashMap* map, const char* key) {
+  return hashMapGet(map, key) != NULL;
 }
 
-bool hashMapIteratorNext(HashMapIterator* iter, const char** key, void** value) {
-  if (!iter || !iter->map || !key || !value) return false;
-
-  if (!iter->current_entry) return false;
-  *key = iter->current_entry->key;
-  *value = iter->current_entry->value;
-  iter->current_entry = iter->current_entry->next;
-  if (!iter->current_entry) {
-    iter->bucket_idx++;
-    while (iter->bucket_idx < iter->map->size && !iter->map->buckets[iter->bucket_idx]) iter->bucket_idx++;
-    if (iter->bucket_idx < iter->map->size) iter->current_entry = iter->map->buckets[iter->bucket_idx];
-  }
-  return true;
+int hashMapSize(FastHashMap* map) {
+  return map ? map->count : 0;
 }
-
 
 void hashMapClear(FastHashMap* map) {
   if (!map) return;
-  
+
   for (int i = 0; i < map->size; i++) {
     HashEntry* entry = map->buckets[i];
     while (entry) {
@@ -193,4 +175,40 @@ void hashMapPrint(FastHashMap* map, void (*print_value)(const char*, void*)) {
   while (hashMapIteratorNext(iter, &key, &value)) { print_value(key, value); }
   
   hashMapIteratorDestroy(iter);
+}
+
+void* hashMapGetDefault(FastHashMap* map, const char* key, void* default_value) {
+  void* result = hashMapGet(map, key);
+  return result ? result : default_value;
+}
+
+HashMapIterator* hashMapIteratorCreate(FastHashMap* map) {
+  if (!map) return NULL;
+  
+  HashMapIterator* iter = (HashMapIterator*)malloc(sizeof(HashMapIterator));
+  iter->map = map;
+  iter->bucket_idx = 0;
+  iter->current_entry = NULL;
+  while (iter->bucket_idx < map->size && !map->buckets[iter->bucket_idx]) iter->bucket_idx++;
+  if (iter->bucket_idx < map->size) iter->current_entry = map->buckets[iter->bucket_idx];
+  return iter;
+}
+
+void hashMapSetDestructor(FastHashMap* map, void (*destructor)(void*)) { if (map) map->value_destructor = destructor; }
+void hashMapIteratorDestroy(HashMapIterator* iter) { free(iter); }
+bool hashMapEmpty(FastHashMap* map) { return !map || map->count == 0; }
+
+bool hashMapIteratorNext(HashMapIterator* iter, const char** key, void** value) {
+  if (!iter || !iter->map || !key || !value) return false;
+
+  if (!iter->current_entry) return false;
+  *key = iter->current_entry->key;
+  *value = iter->current_entry->value;
+  iter->current_entry = iter->current_entry->next;
+  if (!iter->current_entry) {
+    iter->bucket_idx++;
+    while (iter->bucket_idx < iter->map->size && !iter->map->buckets[iter->bucket_idx]) iter->bucket_idx++;
+    if (iter->bucket_idx < iter->map->size) iter->current_entry = iter->map->buckets[iter->bucket_idx];
+  }
+  return true;
 }
