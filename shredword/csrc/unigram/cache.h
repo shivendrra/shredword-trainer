@@ -5,8 +5,11 @@
 #define  MIN_HASH_SIZE  100000
 
 typedef struct Node {
-  int key, value;
-  struct Node *prev, *next;
+  int key;
+  int value;
+  struct Node* prev;
+  struct Node* next;
+  struct Node* hnext;
 } Node;
 
 typedef struct LRUCache {

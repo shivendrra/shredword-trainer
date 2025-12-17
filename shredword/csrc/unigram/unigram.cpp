@@ -281,54 +281,17 @@ float computeLoss(UnigramTrainer* trainer, const char** texts, int text_count) {
 }
 
 double computeTokenLoss(UnigramTrainer* trainer, const char* token, const char** texts, int text_count) {
-  if (!trainer || !token || !texts || text_count <= 0) return 0.0;
-  FastHashMap* temp_vocab = hashmapCreate(hashMapSize(trainer->vocab));
-  if (!temp_vocab) return 0.0;
-  HashMapIterator* iter = hashMapIteratorCreate(trainer->vocab);
-  if (iter) {
-    const char* key; void* value;
-    while (hashMapIteratorNext(iter, &key, &value)) {
-      if (strcmp(key, token) != 0) {
-        double* original_score = (double*)value;
-        double* new_score = (double*)malloc(sizeof(double));
-        if (new_score) { *new_score = *original_score; hashMapSet(temp_vocab, key, new_score); }
-      }
-    }
-    hashMapIteratorDestroy(iter);
-  }
-  ViterbiDecoder* temp_decoder = viterbiDecoderCreate();
-  if (!temp_decoder) {
-    HashMapIterator* titer = hashMapIteratorCreate(temp_vocab);
-    if (titer) {
-      const char* key; void* value;
-      while (hashMapIteratorNext(titer, &key, &value)) free(value);
-      hashMapIteratorDestroy(titer);
-    }
-    hashMapDestroy(temp_vocab);
-    return 0.0;
-  }
-  double total_loss = 0.0;
-  for (int i = 0; i < text_count; i++) {
-    if (!texts[i] || !strstr(texts[i], token)) continue;
-    TokenList* segmentation = viterbiDecode(temp_decoder, texts[i], temp_vocab);
-    if (!segmentation) continue;
-    for (int j = 0; j < segmentation->count; j++) {
-      double* token_score = (double*)hashMapGet(temp_vocab, segmentation->tokens[j]);
-      double score = token_score ? *token_score : -20.0;
-      total_loss -= score;
-    }
-    tokenListDestroy(segmentation);
-  }
-  viterbiDecoderDestroy(temp_decoder);
-  HashMapIterator* titer = hashMapIteratorCreate(temp_vocab);
-  if (titer) {
-    const char* key; void* value;
-    while (hashMapIteratorNext(titer, &key, &value)) free(value);
-    hashMapIteratorDestroy(titer);
-  }
-  hashMapDestroy(temp_vocab);
-  return total_loss;
+  if (!trainer || !token) return 0.0;
+
+  int* freq = (int*)hashMapGet(trainer->token_freqs, token);
+  if (!freq) return 0.0;
+
+  double* score = (double*)hashMapGet(trainer->vocab, token);
+  double token_score = score ? *score : 0.0;
+
+  return (double)(*freq) * fabs(token_score);
 }
+
 
 int compareRemovalCandidates(const void* a, const void* b) {
   const RemovalCandidate* ca = (const RemovalCandidate*)a;
@@ -496,27 +459,41 @@ bool trainUnigram(UnigramTrainer* trainer, const char** texts, int text_count, i
     }
     trainer->text_count = text_count;
   }
+  
   printf("Preprocessing %d texts...\n", trainer->text_count);
   if (!preprocessTexts(trainer)) { printf("Failed in preprocessTexts\n"); return false; }
+  
   int train_text_limit = (trainer->text_count < 10000) ? trainer->text_count : 10000;
   trainer->text_count = train_text_limit;
   printf("Initializing seed vocabulary (using %d texts)...\n", trainer->text_count);
+  
   if (!extractInitialSubwords(trainer)) { printf("Failed in extractInitialSubwords\n"); return false; }
   printf("Initial vocabulary size: %d\n", hashMapSize(trainer->vocab));
+  
+  int max_initial = trainer->vocab_size * 4;
+  if (hashMapSize(trainer->vocab) > max_initial) {
+    printf("Hard pruning initial vocab to %d tokens...\n", max_initial);
+    pruneVocabStep(trainer, (const char**)trainer->texts, trainer->text_count < 200 ? trainer->text_count : 200, (double)max_initial / hashMapSize(trainer->vocab));
+    printf("Initial vocab pruned to %d tokens\n", hashMapSize(trainer->vocab));
+  }
   double prev_loss = DBL_MAX;
   for (int iteration = 0; iteration < num_iterations; iteration++) {
     printf("\nIteration %d/%d\n", iteration + 1, num_iterations);
     int loss_text_limit = (trainer->text_count < 1000) ? trainer->text_count : 1000;
     double current_loss = computeLoss(trainer, (const char**)trainer->texts, loss_text_limit);
+
     printf("  Current loss: %.4f\n", current_loss);
+
     if (fabs(prev_loss - current_loss) < CONVERGENCE_THRESHOLD) { printf("  Convergence reached\n"); break; }
     prev_loss = current_loss;
     updateTokenScores(trainer, (const char**)trainer->texts, trainer->text_count);
     printf("  Updated token scores\n");
+
     if (hashMapSize(trainer->vocab) > trainer->vocab_size) {
       pruneVocabStep(trainer, (const char**)trainer->texts, trainer->text_count, DEFAULT_REDUCTION_RATIO);
       printf("  Pruned vocabulary to %d tokens\n", hashMapSize(trainer->vocab));
     }
+
     cacheFree(trainer->loss_cache);
     trainer->loss_cache = cacheCreate(100000);
   }

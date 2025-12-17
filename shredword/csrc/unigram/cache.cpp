@@ -12,6 +12,7 @@ LRUCache* cacheCreate(size_t capacity) {
 
   cache->head = (Node*)malloc(sizeof(Node));
   cache->tail = (Node*)malloc(sizeof(Node));
+
   cache->head->prev = NULL;
   cache->head->next = cache->tail;
   cache->tail->prev = cache->head;
@@ -39,36 +40,28 @@ void moveToHead(LRUCache* cache, Node* node) {
 }
 
 Node* popTail(LRUCache* cache) {
-  Node* last_node = cache->tail->prev;
-  removeNode(last_node);
-  return last_node;
+  Node* node = cache->tail->prev;
+  removeNode(node);
+  return node;
 }
 
 int cacheGet(LRUCache* cache, int key) {
-  if (!cache) {
-    fprintf(stderr, "Invalid input, NULL value of LRUCache Pointer!\n");
-    exit(EXIT_FAILURE);
-  }
   int index = cache_hash(key, cache->hash_size);
   Node* node = cache->hash_table[index];
+
   while (node) {
     if (node->key == key) {
       moveToHead(cache, node);
       return node->value;
     }
-    node = node->next;
+    node = node->hnext;
   }
   return -1;
 }
 
 void cachePut(LRUCache* cache, int key, int value) {
-  if (!cache) {
-    fprintf(stderr, "Invalid input, NULL value of LRUCache Pointer!\n");
-    exit(EXIT_FAILURE);
-  }
   int index = cache_hash(key, cache->hash_size);
   Node* node = cache->hash_table[index];
-  Node* prev = NULL;
 
   while (node) {
     if (node->key == key) {
@@ -76,61 +69,47 @@ void cachePut(LRUCache* cache, int key, int value) {
       moveToHead(cache, node);
       return;
     }
-    prev = node;
-    node = node->next;
+    node = node->hnext;
   }
 
   Node* new_node = (Node*)malloc(sizeof(Node));
-  if (!new_node) return;
   new_node->key = key;
   new_node->value = value;
-  new_node->next = NULL;
+  new_node->hnext = cache->hash_table[index];
+  cache->hash_table[index] = new_node;
 
   if (cache->size < cache->capacity) {
     cache->size++;
     addNode(cache, new_node);
   } else {
     Node* tail = popTail(cache);
-    int tail_index = cache_hash(tail->key, cache->hash_size);
-    Node* hash_node = cache->hash_table[tail_index];
-    Node* hash_prev = NULL;
-    while (hash_node && hash_node->key != tail->key) {
-      hash_prev = hash_node;
-      hash_node = hash_node->next;
+    int tidx = cache_hash(tail->key, cache->hash_size);
+
+    Node* cur = cache->hash_table[tidx];
+    Node* prev = NULL;
+    while (cur) {
+      if (cur == tail) {
+        if (prev) prev->hnext = cur->hnext;
+        else cache->hash_table[tidx] = cur->hnext;
+        break;
+      }
+      prev = cur;
+      cur = cur->hnext;
     }
-    if (hash_node) {
-      if (hash_prev) hash_prev->next = hash_node->next;
-      else cache->hash_table[tail_index] = hash_node->next;
-    }
+
     free(tail);
     addNode(cache, new_node);
   }
-
-  if (cache->hash_table[index]) {
-    Node* temp = cache->hash_table[index];
-    while (temp->next) temp = temp->next;
-    temp->next = new_node;
-  } else { cache->hash_table[index] = new_node; }
 }
 
 void cacheFree(LRUCache* cache) {
-  if (!cache) {
-    fprintf(stderr, "Invalid input, NULL value of LRUCache Pointer!\n");
-    exit(EXIT_FAILURE);
+  Node* cur = cache->head;
+  while (cur) {
+    Node* next = cur->next;
+    free(cur);
+    cur = next;
   }
-  Node* current = cache->head;
-  while (current) {
-    Node* next = current->next;
-    free(current);
-    current = next;
-  }
-  for (int i = 0; i < cache->hash_size; i++) {
-    Node* node = cache->hash_table[i];
-    while (node) {
-      Node* next = node->next;
-      node = next;
-    }
-  }
+
   free(cache->hash_table);
   free(cache);
 }
