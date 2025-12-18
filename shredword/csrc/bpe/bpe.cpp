@@ -241,7 +241,7 @@ int bpe_merge_batch(Trainer* trainer, int batch_size) {
   int merges_done = 0, stale_entries = 0;
   uint64_t min_freq = trainer->config.min_pair_freq;
   while (merges_done < batch_size && !heap_empty(&trainer->heap)) {
-    HeapEntry top = heap_pop(&trainer->heap);
+    BPEHeapEntry top = heap_pop(&trainer->heap);
     PairKey key = top.key;
     Info* info = bimap_get(&trainer->bigram_map, key);
     if (top.version != info->version) {
@@ -357,7 +357,7 @@ int bpe_train(Trainer* trainer) {
       printf("[INFO]\t Heap exhausted, stopping training\n");
       break;
     }
-    HeapEntry top = trainer->heap.data[0];
+    BPEHeapEntry top = trainer->heap.data[0];
     uint64_t top_freq = top.freq;
     int batch_size;
     if (top_freq > 50000) batch_size = 10;

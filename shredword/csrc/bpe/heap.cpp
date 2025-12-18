@@ -11,9 +11,9 @@
   * @param x  Pointer to the first entry.
   * @param y  Pointer to the second entry.
  */
-static void he_swap(HeapEntry* x, HeapEntry* y) {
+static void he_swap(BPEHeapEntry* x, BPEHeapEntry* y) {
   assert(x && y);
-  HeapEntry tmp = *x;
+  BPEHeapEntry tmp = *x;
   *x = *y;
   *y = tmp;
 }
@@ -33,7 +33,7 @@ void heap_init(MaxHeap* h, size_t capacity) {
     exit(EXIT_FAILURE);
   }
 
-  h->data = (HeapEntry *)malloc(sizeof(HeapEntry) * capacity);
+  h->data = (BPEHeapEntry *)malloc(sizeof(BPEHeapEntry) * capacity);
   if (!h->data) {
     fprintf(stderr, "Memory allocation failed for heap data!\n");
     exit(EXIT_FAILURE);
@@ -58,7 +58,7 @@ void heap_push(MaxHeap* h, PairKey key, uint64_t freq, uint32_t version) {
   // grow if needed
   if (h->size == h->cap) {
     size_t new_cap = h->cap * 2;
-    HeapEntry* new_data = (HeapEntry*)realloc(h->data, sizeof(HeapEntry) * new_cap);
+    BPEHeapEntry* new_data = (BPEHeapEntry*)realloc(h->data, sizeof(BPEHeapEntry) * new_cap);
     if (!new_data) {
       fprintf(stderr, "Memory reallocation failed!\n");
       exit(EXIT_FAILURE);
@@ -81,11 +81,11 @@ void heap_push(MaxHeap* h, PairKey key, uint64_t freq, uint32_t version) {
 
 /**
   @brief Pop the top (highest-frequency) entry from the heap.
-          The returned HeapEntry.key must be freed by the caller.
+          The returned BPEHeapEntry.key must be freed by the caller.
   @param h Pointer to the heap.
-  @return The popped HeapEntry.
+  @return The popped BPEHeapEntry.
  */
-HeapEntry heap_pop(MaxHeap* h) {
+BPEHeapEntry heap_pop(MaxHeap* h) {
   if (h == NULL) {
     fprintf(stderr, "Error: Heap pointer is Null.\n");
     exit(EXIT_FAILURE);
@@ -94,7 +94,7 @@ HeapEntry heap_pop(MaxHeap* h) {
     fprintf(stderr, "Error: Cannot pop from empty heap.\n");
     exit(EXIT_FAILURE);
   }
-  HeapEntry top = h->data[0];
+  BPEHeapEntry top = h->data[0];
   h->data[0] = h->data[--h->size];
 
   size_t idx = 0;
