@@ -7,30 +7,30 @@
  * and must be freed after use. 
 */
 
-#ifndef __HEAP__H__
-#define __HEAP__H__
+#ifndef __BPE_HEAP_H__
+#define __BPE_HEAP_H__
 
 #include <stdint.h>
 #include <stddef.h>
 #include "hash.h"
 
-typedef struct HeapEntry {
+typedef struct BPEHeapEntry {
   PairKey key;
   uint64_t freq;
   uint32_t version;
-} HeapEntry; // An entry in the heap
+} BPEHeapEntry; // An entry in the heap
 
 typedef struct MaxHeap {
-  HeapEntry* data;  // array of heap entries
+  BPEHeapEntry* data;  // array of heap entries
   size_t size;   // current no of elements
   size_t cap;    // allocation capacity MaxHeap
-} MaxHeap;  // A simple max-heap over HeapEntry
+} MaxHeap;  // A simple max-heap over BPEHeapEntry
 
 extern "C" {
   // heap related functions
   void heap_init(MaxHeap* h, size_t capacity);
   void heap_push(MaxHeap* h, PairKey key, uint64_t freq, uint32_t version);
-  HeapEntry heap_pop(MaxHeap* h); // removes & returns top
+  BPEHeapEntry heap_pop(MaxHeap* h); // removes & returns top
   int heap_empty(MaxHeap* h);
   void heap_free(MaxHeap* h);
 }
