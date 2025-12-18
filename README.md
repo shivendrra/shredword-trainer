@@ -47,10 +47,24 @@ Below is a simple example demonstrating how to use ShredWord for training, encod
 
 ### Example
 
+#### BPE Trainer
+
 ```python
 from shredword.trainer import BPETrainer
 
 trainer = BPETrainer(target_vocab_size=500, min_pair_freq=1000)
+trainer.load_corpus("test data/final.txt")
+trainer.train()
+trainer.save("model/merges_1k.model", "model/vocab_1k.vocab")
+```
+
+#### Unigram Trainer
+
+
+```python
+from shredword.trainer import UnigramTrainer
+
+trainer = UnigramTrainer(target_vocab_size=500, min_pair_freq=1000)
 trainer.load_corpus("test data/final.txt")
 trainer.train()
 trainer.save("model/merges_1k.model", "model/vocab_1k.vocab")
