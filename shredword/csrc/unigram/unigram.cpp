@@ -598,29 +598,32 @@ bool getVocab(UnigramTrainer* trainer, char*** tokens, double** scores, int* cou
 
 bool saveVocab(UnigramTrainer* trainer, const char* filepath) {
   if (!trainer || !filepath) return false;
-  FILE* file = fopen(filepath, "w");
-  if (!file) return false;
-  int count = hashMapSize(trainer->final_vocab);
-  TokenScore* sorted_vocab = (TokenScore*)malloc(count * sizeof(TokenScore));
-  if (!sorted_vocab) { fclose(file); return false; }
-  HashMapIterator* iter = hashMapIteratorCreate(trainer->final_vocab);
-  int idx = 0;
-  if (iter) {
-    const char* key; void* value;
-    while (hashMapIteratorNext(iter, &key, &value) && idx < count) {
-      sorted_vocab[idx].token = strdup(key);
-      sorted_vocab[idx].score = *(double*)value;
-      idx++;
-    }
-    hashMapIteratorDestroy(iter);
+  FILE* f = fopen(filepath, "wb");
+  if (!f) return false;
+
+  uint32_t magic = 0x554E4752;
+  uint32_t version = 1;
+  uint32_t count = hashMapSize(trainer->final_vocab);
+
+  fwrite(&magic, sizeof(uint32_t), 1, f);
+  fwrite(&version, sizeof(uint32_t), 1, f);
+  fwrite(&count, sizeof(uint32_t), 1, f);
+
+  HashMapIterator* it = hashMapIteratorCreate(trainer->final_vocab);
+  if (!it) { fclose(f); return false; }
+  const char* token;
+  void* value;
+
+  while (hashMapIteratorNext(it, &token, &value)) {
+    uint16_t len = (uint16_t)strlen(token);
+    double score = *(double*)value;
+
+    fwrite(&len, sizeof(uint16_t), 1, f);
+    fwrite(token, 1, len, f);
+    fwrite(&score, sizeof(double), 1, f);
   }
-  qsort(sorted_vocab, count, sizeof(TokenScore), compareTokenScores);
-  for (int i = 0; i < count; i++) {
-    fprintf(file, "%s\t%.6f\n", sorted_vocab[i].token, sorted_vocab[i].score);
-    free(sorted_vocab[i].token);
-  }
-  free(sorted_vocab);
-  fclose(file);
+  hashMapIteratorDestroy(it);
+  fclose(f);
   return true;
 }
 
